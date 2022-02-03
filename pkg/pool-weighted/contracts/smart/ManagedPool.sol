@@ -64,8 +64,6 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
     // creation gas consumption.
     uint256 private constant _MAX_MANAGED_TOKENS = 50;
 
-    // Percentage of swap fees that are allocated to the Pool owner.
-    uint256 private immutable _managementSwapFeePercentage;
     uint256 private constant _MAX_MANAGEMENT_SWAP_FEE_PERCENTAGE = 1e18; // 100%
 
     // Use the _miscData slot in BasePool
@@ -102,6 +100,9 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
     mapping(address => bool) private _allowedAddresses;
 
     uint256 private _totalWeight = FixedPoint.ONE;
+
+    // Percentage of swap fees that are allocated to the Pool owner, after protocol fees
+    uint256 private _managementSwapFeePercentage;
 
     // Event declarations
 
@@ -156,11 +157,8 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
         // Double check it fits in 7 bits
         _require(_getTotalTokens() == totalTokens, Errors.MAX_TOKENS);
 
-        // This must be inlined in the constructor as we're setting an immutable variable.
-        _require(
-            params.managementSwapFeePercentage <= _MAX_MANAGEMENT_SWAP_FEE_PERCENTAGE,
-            Errors.MAX_MANAGEMENT_SWAP_FEE_PERCENTAGE
-        );
+        // Validate and set initial fee
+        _setManagementSwapFeePercentage(params.managementSwapFeePercentage);
 
         uint256 currentTime = block.timestamp;
         _startGradualWeightChange(
@@ -181,10 +179,6 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
 
         // If true, only addresses on the manager-controlled allowlist may join the pool.
         _setMustAllowlistLPs(params.mustAllowlistLPs);
-
-        _managementSwapFeePercentage = params.managementSwapFeePercentage;
-
-        emit ManagementFeePercentageChanged(params.managementSwapFeePercentage);
     }
 
     /**
@@ -346,7 +340,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
     }
 
     /**
-     * @dev Can enable/disable trading
+     * @dev Enable/disable trading
      */
     function setSwapEnabled(bool swapEnabled) external authenticate whenNotPaused {
         _setSwapEnabled(swapEnabled);
@@ -369,12 +363,8 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
      * - Calculate the BPT value of the new token, and return it for possible use by the caller
      */
     function addToken(IERC20 token, uint256 normalizedWeight, uint256 tokenAmountIn, uint256 minBptPrice, address sender) external authenticate whenNotPaused returns (uint256) {
-        return _addToken(token, normalizedWeight, tokenAmountIn, sender);
+        return _addToken(token, normalizedWeight, tokenAmountIn, minBptPrice, sender);
     }
-
-    //function addTokenWithAmount(IERC20 token, uint256 tokenAmountIn, address sender) external authenticate whenNotPaused returns (uint256) {
-    //    return _addToken(token, normalizedWeight, sender);
-    //}
 
     function _addToken(IERC20 token, uint256 normalizedWeight, uint256 tokenAmountIn, uint256 minBptPrice, address sender) internal returns (uint256) {
         _require(normalizedWeight >= WeightedMath._MIN_WEIGHT, Errors.MIN_WEIGHT);
@@ -399,10 +389,10 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
         // Validate new weights
         (IERC20[] memory tokens, , ) = getVault().getPoolTokens(getPoolId());
         for (uint256 i = 0; i < tokens.length; i++) {
-            _require(_getTokenData(tokens[i]).decodeUint32(_END_WEIGHT_OFFSET).uncompress32().divUp(newTotal) >= WeightedMath._MIN_WEIGHT, Errors.MIN_WEIGHT);
+            _require(_getTokenData(tokens[i]).decodeUint32(_END_WEIGHT_OFFSET).uncompress32().divUp(newTotalWeight) >= WeightedMath._MIN_WEIGHT, Errors.MIN_WEIGHT);
         }
         uint256 newTokenRawWeight = normalizedWeight.mulDown(newTotalWeight);
-        _totalWeight = newTotal;
+        _totalWeight = newTotalWeight;
 
         //TODO need to scale amountsIn
         uint256 actualBptPrice = totalSupply().mulDown(supplyMultiplier).mulDown(normalizedWeight).divUp(tokenAmountIn);
@@ -424,6 +414,23 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
      */
     function getTotalWeight() external view returns (uint256) {
         return _totalWeight;
+    }
+
+    /**
+     * @dev Set the management fee percentage
+     */
+    function setManagementSwapFeePercentage(uint256 managementFeePercentage) external authenticate whenNotPaused {
+        _setManagementSwapFeePercentage(managementFeePercentage);
+    }
+
+    function _setManagementSwapFeePercentage(uint256 managementSwapFeePercentage) private {
+        _require(
+            managementSwapFeePercentage <= _MAX_MANAGEMENT_SWAP_FEE_PERCENTAGE,
+            Errors.MAX_MANAGEMENT_SWAP_FEE_PERCENTAGE
+        );
+
+        _managementSwapFeePercentage = managementSwapFeePercentage;
+        emit ManagementFeePercentageChanged(managementSwapFeePercentage);
     }
 
     function _scalingFactor(IERC20 token) internal view virtual override returns (uint256) {
@@ -743,6 +750,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
             (actionId == getActionId(ManagedPool.addAllowedAddress.selector)) ||
             (actionId == getActionId(ManagedPool.removeAllowedAddress.selector)) ||
             (actionId == getActionId(ManagedPool.setMustAllowlistLPs.selector)) ||
+            (actionId == getActionId(ManagedPool.setManagementSwapFeePercentage.selector)) ||
             super._isOwnerOnlyAction(actionId);
     }
 
