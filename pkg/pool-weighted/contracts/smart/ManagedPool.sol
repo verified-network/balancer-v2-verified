@@ -101,6 +101,8 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
     // If mustAllowlistLPs is enabled, this is the list of addresses allowed to join the pool
     mapping(address => bool) private _allowedAddresses;
 
+    uint256 private _totalWeight = FixedPoint.ONE;
+
     // Event declarations
 
     event GradualWeightUpdateScheduled(
@@ -115,6 +117,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
     event ManagementFeesCollected(IERC20[] tokens, uint256[] amounts);
     event AllowlistAddressAdded(address indexed member);
     event AllowlistAddressRemoved(address indexed member);
+    event TokenAdded(IERC20 indexed token, uint256 weight, uint256 initialBalance);
 
     struct NewPoolParams {
         IVault vault;
@@ -353,6 +356,74 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
         _setMiscData(_getMiscData().insertBool(swapEnabled, _SWAP_ENABLED_OFFSET));
 
         emit SwapEnabledSet(swapEnabled);
+    }
+
+    /**
+     * @dev Add a token to the pool. This is a permissioned function that performs the following operations:
+     * - Verify there is room for the token, there is no ongoing weight change, and the final weights are all valid
+     * - Calculate the new BPT price, and ensure it is >= the minimum
+     * - Register the new token with the Vault
+     * - Join the pool, pulling in the tokenAmountIn from the sender
+     * - Increase the total weight, and update the number of tokens and `_tokenState`
+     *   (all other weights then scale accordingly)
+     * - Calculate the BPT value of the new token, and return it for possible use by the caller
+     */
+    function addToken(IERC20 token, uint256 normalizedWeight, uint256 tokenAmountIn, uint256 minBptPrice, address sender) external authenticate whenNotPaused returns (uint256) {
+        return _addToken(token, normalizedWeight, tokenAmountIn, sender);
+    }
+
+    //function addTokenWithAmount(IERC20 token, uint256 tokenAmountIn, address sender) external authenticate whenNotPaused returns (uint256) {
+    //    return _addToken(token, normalizedWeight, sender);
+    //}
+
+    function _addToken(IERC20 token, uint256 normalizedWeight, uint256 tokenAmountIn, uint256 minBptPrice, address sender) internal returns (uint256) {
+        _require(normalizedWeight >= WeightedMath._MIN_WEIGHT, Errors.MIN_WEIGHT);
+        // The max weight actually depends on the number of other tokens, but this is handled below (ensuring the final weights are all >= minimum)
+        _require(normalizedWeight < FixedPoint.ONE, Errors.MAX_WEIGHT);
+        _require(_getTotalTokens() < _getMaxTokens(), Errors.MAX_TOKENS);
+        // Verify there is no ongoing weight change
+        _require(
+            0 == _calculateWeightChangeProgress() || FixedPoint.ONE == _calculateWeightChangeProgress(),
+            Errors.REMOVE_TOKEN_DURING_WEIGHT_CHANGE
+        );
+        
+        // The new totol weight, accommodating the new token. For instance:
+        // Existing pool: A 0.5, B 0.5; total 1.0: 50/50% before add
+        // Adding new token C at 40%
+        // newTotal = 1.0 / (1 - 0.4) = 1.6667; newRawWeight = 0.4(1.6667) = 0.6667
+        // Raw weights after add: A 0.5, B 0.5, C 0.6667, total 1.6667
+        // Normalized weights after add: 30%/30%/40%
+        uint256 supplyMultiplier = FixedPoint.ONE.divDown(FixedPoint.ONE - normalizedWeight);
+        uint256 newTotalWeight = _totalWeight.mulUp(supplyMultiplier);
+
+        // Validate new weights
+        (IERC20[] memory tokens, , ) = getVault().getPoolTokens(getPoolId());
+        for (uint256 i = 0; i < tokens.length; i++) {
+            _require(_getTokenData(tokens[i]).decodeUint32(_END_WEIGHT_OFFSET).uncompress32().divUp(newTotal) >= WeightedMath._MIN_WEIGHT, Errors.MIN_WEIGHT);
+        }
+        uint256 newTokenRawWeight = normalizedWeight.mulDown(newTotalWeight);
+        _totalWeight = newTotal;
+
+        //TODO need to scale amountsIn
+        uint256 actualBptPrice = totalSupply().mulDown(supplyMultiplier).mulDown(normalizedWeight).divUp(tokenAmountIn);
+        require(actualBptPrice >= minBptPrice, "BPT price too low");
+
+        // If done in two stages, the controller would externally calculate a minimum BPT price (i.e., 1 token = x BPT), based on dollar values
+        // = (totalSupply * weight)/balance, where balance should be set to: (old USD value of pool) * supplyMultiplier * weight of new token
+        // For instance, if adding 10% DAI to a pool with $10k of value (at $1/DAI), you would add 10k * 1.1111 * 0.1 = 1111.11 DAI
+        // The BPT price might be 0.021, and the controller could set a minimum of 0.02 (lower BPT price = higher maxAmountIn)
+        // In the commit stage, the actual desired balance would be passed in: 
+        //
+        // BPTAmountIn = totalSupply * (1/(1 - new weight) - 1)
+        return totalSupply().mulDown(supplyMultiplier - FixedPoint.ONE);
+    }
+
+    /**
+     * @dev Getter for the sum of all weights. In initially FixedPoint.ONE, it can be higher or lower
+     * as a result of adds and removes.
+     */
+    function getTotalWeight() external view returns (uint256) {
+        return _totalWeight;
     }
 
     function _scalingFactor(IERC20 token) internal view virtual override returns (uint256) {
