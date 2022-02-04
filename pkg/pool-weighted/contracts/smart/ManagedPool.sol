@@ -85,7 +85,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
 
     // Store scaling factor and start/end weights for each token
     // Mapping should be more efficient than trying to compress it further
-    // [ 155 bits|   5 bits |  32 bits   |   64 bits    |
+    // [ 155 bits|   5 bits |  64 bits   |   64 bits    |
     // [ unused  | decimals | end weight | start weight |
     // |MSB                                          LSB|
     mapping(IERC20 => bytes32) private _tokenState;
@@ -94,12 +94,12 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
 
     uint256 private constant _START_WEIGHT_OFFSET = 0;
     uint256 private constant _END_WEIGHT_OFFSET = 64;
-    uint256 private constant _DECIMAL_DIFF_OFFSET = 96;
+    uint256 private constant _DECIMAL_DIFF_OFFSET = 128;
 
     // If mustAllowlistLPs is enabled, this is the list of addresses allowed to join the pool
     mapping(address => bool) private _allowedAddresses;
 
-    uint256 private _totalWeight = FixedPoint.ONE;
+    uint256 private _weightSum = FixedPoint.ONE;
 
     // Percentage of swap fees that are allocated to the Pool owner, after protocol fees
     uint256 private _managementSwapFeePercentage;
@@ -234,7 +234,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
         endWeights = new uint256[](totalTokens);
 
         for (uint256 i = 0; i < totalTokens; i++) {
-            endWeights[i] = _tokenState[tokens[i]].decodeUint32(_END_WEIGHT_OFFSET).uncompress32();
+            endWeights[i] = _tokenState[tokens[i]].decodeUint64(_END_WEIGHT_OFFSET).uncompress64();
         }
     }
 
@@ -353,67 +353,185 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
     }
 
     /**
-     * @dev Add a token to the pool. This is a permissioned function that performs the following operations:
-     * - Verify there is room for the token, there is no ongoing weight change, and the final weights are all valid
+     * @dev This function takes the token, and the normalizedWeight it should have in the pool after being added.
+     * The stored (denormalized) weights of all other tokens remain unchanged, but the weightSum will increase,
+     * such that the normalized weight of the new token will match the target value, and the normalized weights of
+     * all other tokens will be reduced proportionately.
+     *
+     * addToken performs the following operations:
+     *
+     * - Verify there is room for the token, there is no weight change, and the final weights are all valid
      * - Calculate the new BPT price, and ensure it is >= the minimum
      * - Register the new token with the Vault
      * - Join the pool, pulling in the tokenAmountIn from the sender
      * - Increase the total weight, and update the number of tokens and `_tokenState`
      *   (all other weights then scale accordingly)
-     * - Calculate the BPT value of the new token, and return it for possible use by the caller
+     * - REturn the BPT value of the new token, for possible use by the caller
      */
-    function addToken(IERC20 token, uint256 normalizedWeight, uint256 tokenAmountIn, uint256 minBptPrice, address sender) external authenticate whenNotPaused returns (uint256) {
-        return _addToken(token, normalizedWeight, tokenAmountIn, minBptPrice, sender);
+    function addToken(
+        IERC20 token,
+        uint256 normalizedWeight,
+        uint256 tokenAmountIn,
+        address assetManager,
+        uint256 minBptPrice,
+        address sender
+    ) external authenticate whenNotPaused returns (uint256) {
+        return _addToken(token, normalizedWeight, tokenAmountIn, assetManager, minBptPrice, sender);
     }
 
-    function _addToken(IERC20 token, uint256 normalizedWeight, uint256 tokenAmountIn, uint256 minBptPrice, address sender) internal returns (uint256) {
+    function _addToken(
+        IERC20 token,
+        uint256 normalizedWeight,
+        uint256 tokenAmountIn,
+        address assetManager,
+        uint256 minBptPrice,
+        address sender
+    ) internal returns (uint256) {
         _require(normalizedWeight >= WeightedMath._MIN_WEIGHT, Errors.MIN_WEIGHT);
-        // The max weight actually depends on the number of other tokens, but this is handled below (ensuring the final weights are all >= minimum)
+        // The max weight actually depends on the number of other tokens, but this is handled below
+        // by ensuring the final weights are all >= minimum
         _require(normalizedWeight < FixedPoint.ONE, Errors.MAX_WEIGHT);
         _require(_getTotalTokens() < _getMaxTokens(), Errors.MAX_TOKENS);
-        // Verify there is no ongoing weight change
-        _require(
-            0 == _calculateWeightChangeProgress() || FixedPoint.ONE == _calculateWeightChangeProgress(),
-            Errors.REMOVE_TOKEN_DURING_WEIGHT_CHANGE
-        );
-        
-        // The new totol weight, accommodating the new token. For instance:
-        // Existing pool: A 0.5, B 0.5; total 1.0: 50/50% before add
-        // Adding new token C at 40%
-        // newTotal = 1.0 / (1 - 0.4) = 1.6667; newRawWeight = 0.4(1.6667) = 0.6667
-        // Raw weights after add: A 0.5, B 0.5, C 0.6667, total 1.6667
-        // Normalized weights after add: 30%/30%/40%
-        uint256 supplyMultiplier = FixedPoint.ONE.divDown(FixedPoint.ONE - normalizedWeight);
-        uint256 newTotalWeight = _totalWeight.mulUp(supplyMultiplier);
+        // Do not allow adding tokens if there is an ongoing or pending gradual weight change
+        _ensureConstantWeights();
 
-        // Validate new weights
+        uint256 weightSumBeforeAdd = _weightSum;
+
+        // Calculate the weightSum after the add
+        // Consider an 80/20 pool:
+        // |----0.8----|-0.2-| 
+        // 0                 x = 1.0 (rightmost point at the "end" of the number line)
+        //
+        // Now add a new token with a weight of 60% 
+        // |----0.8----|-0.2-|---0.6y---| 
+        // 0                 x          y = the new weightSum
+        //
+        // By definition, since we interpret the new token weight as the desired final normalized weight,
+        // the new "length" is the old length, plus 60% of the total new length, y
+        // y = 0.6y + x
+        // (1 - 0.6)y = x
+        // y = x / (1 - 0.6); since x = 1, y = 1/0.4 = 2.5
+        //
+        // The denormalized weight of the new token, 0.6y, is then 0.6(2.5) = 1.5
+        // Since the denorm weights of the original tokens stay the same, the final state is:
+        // |----0.8----|-0.2-|---1.5---|  denormalized weights (as stored)
+        //    0.8/2.5  0.2/2.5 1.5/2.5
+        //      32%      8%      60%      normalized weights (as calculated: W[i]/weightSum)
+        //
+        // The added token is 60%, as desired, and the original 80/20 weights are scaled down
+        // proportionately to 32/8, to fit within the remaining 40%
+        //
+        uint256 weightSumMultiplier = FixedPoint.ONE.divDown(FixedPoint.ONE - normalizedWeight);
+        uint256 weightSumAfterAdd = weightSumBeforeAdd.mulUp(weightSumMultiplier);
+
+        // Now we need to make sure the other token weights don't get scaled down below the minimum
+        // normalized weight[i] = denormalized weight[i] / weightSumAfterAdd
         (IERC20[] memory tokens, , ) = getVault().getPoolTokens(getPoolId());
         for (uint256 i = 0; i < tokens.length; i++) {
-            _require(_getTokenData(tokens[i]).decodeUint32(_END_WEIGHT_OFFSET).uncompress32().divUp(newTotalWeight) >= WeightedMath._MIN_WEIGHT, Errors.MIN_WEIGHT);
+            _require(
+                _getTokenData(tokens[i])
+                    .decodeUint64(_END_WEIGHT_OFFSET)
+                    .uncompress64()
+                    .divUp(weightSumAfterAdd) >= WeightedMath._MIN_WEIGHT,
+                Errors.MIN_WEIGHT
+            );
         }
-        uint256 newTokenRawWeight = normalizedWeight.mulDown(newTotalWeight);
-        _totalWeight = newTotalWeight;
 
-        //TODO need to scale amountsIn
-        uint256 actualBptPrice = totalSupply().mulDown(supplyMultiplier).mulDown(normalizedWeight).divUp(tokenAmountIn);
+        uint256 newTokenDenormalizedWeight = normalizedWeight.mulDown(weightSumAfterAdd);
+
+        // Calculate the bptAmountOut equivalent to adding the token at the given weight
+        // The BPT price of a token = S / (B/Wn) = (S * Wn) / B;
+        // where S = totalSupply, Wn = normalized weight, and B = balance
+        //
+        // Since the BPT prices of existing tokens should stay constant when adding a token,
+        // Let Sb, Wnb = total supply and normalized weight before the add; and
+        //     Sa, Wna = total supply and normalized weight after the add
+        // Then: (Sa * Wna) / B = (Sb * Wnb) / B
+        //       Sa * Wna = Sb * Wnb
+        //       Sa = Sb * (Wnb / Wna)
+        // Since the normalized weights (Wn) = denormalized weights (Wd) / weightSum (WS), we have:
+        // Sa = Sb * (Wd / WSb)  - denormalized weights don't change, so there is just one Wd
+        //            ---------
+        //           (Wd / WSa)
+        // Sa = Sb * WSa / WSb = totalSupply after the add
+        //
+        // Then the bptAmountOut is the delta in the total supply:
+        // bptAmountOut = Sa - Sb
+        //              = Sb * WSa / WSb - Sb
+        //              = Sb * (WSa / WSb - 1)
+        //
+        // In our example, Sa is the totalSupply on initialization of the pool. If the balances are 400 and 0.5:
+        // Sb = (400^0.8) * (0.5^0.2) * 2 = 210.1222
+        // Sa = 210.1222 * (2.5 / 1.0) = 525.3056
+        // bptAmountOut = 210.1222 * (2.5 / 1.0 - 1) = 315.1833
+        // The added token should represent 60% of the total supply, after the add, and in fact:
+        // 315.1833 / 525.3056 = ~ 0.6
+        //
+        uint256 weightSumRatio = weightSumAfterAdd.divDown(weightSumBeforeAdd);
+        uint256 bptAmountOut = totalSupply().mulDown(weightSumRatio.sub(FixedPoint.ONE));
+
+        // Validate that the actual BPT price
+        uint256 actualBptPrice = totalSupply()
+            .mulDown(weightSumRatio)
+            .mulDown(normalizedWeight)
+            .divUp(_upscale(tokenAmountIn, _computeScalingFactor(token)));
         require(actualBptPrice >= minBptPrice, "BPT price too low");
 
-        // If done in two stages, the controller would externally calculate a minimum BPT price (i.e., 1 token = x BPT), based on dollar values
-        // = (totalSupply * weight)/balance, where balance should be set to: (old USD value of pool) * supplyMultiplier * weight of new token
-        // For instance, if adding 10% DAI to a pool with $10k of value (at $1/DAI), you would add 10k * 1.1111 * 0.1 = 1111.11 DAI
-        // The BPT price might be 0.021, and the controller could set a minimum of 0.02 (lower BPT price = higher maxAmountIn)
-        // In the commit stage, the actual desired balance would be passed in: 
-        //
-        // BPTAmountIn = totalSupply * (1/(1 - new weight) - 1)
-        return totalSupply().mulDown(supplyMultiplier - FixedPoint.ONE);
+        // Register the new token (no asset managers)
+        address[] memory assetManagers = new address[](1);
+        assetManagers[0] = assetManager;
+        IERC20[] memory tokensToAdd = new IERC20[](1);
+        tokensToAdd[0] = token;
+
+        getVault().registerTokens(getPoolId(), tokensToAdd, assetManagers);
+
+        // If done in two stages, the controller would externally calculate a minimum BPT price (i.e., 1 token = x BPT),
+        // based on dollar values.
+        // BPT price = (totalSupply * weight)/balance, where balance should be set to:
+        // (old USD value of pool) * WSa/WSb * weight of new token
+        // 
+        // For instance, if adding 60% DAI to our example pool with $10k of value (at $1/DAI), you would add
+        // 10k * 2.5/1.0 * 0.6 = 15,000 DAI
+        // The BPT price would be 525.3056 * 0.6 / 15000 = 0.021, and the controller could set a minimum of 0.02
+        // (lower BPT price = higher maxAmountIn).
+        // 
+        // In the commit stage, the actual desired balance would be passed in, and addToken would verify
+        // the final BPT price.
+
+        // Store token data, and update the token count
+        bytes32 tokenState;
+
+        _tokenState[token] = tokenState
+                .insertUint64(normalizedWeight.compress64(), _START_WEIGHT_OFFSET)
+                .insertUint64(normalizedWeight.compress64(), _END_WEIGHT_OFFSET)
+                .insertUint5(uint256(18).sub(ERC20(address(token)).decimals()), _DECIMAL_DIFF_OFFSET);
+        _setMiscData(_getMiscData().insertUint7(tokens.length + 1, _TOTAL_TOKENS_OFFSET));
+
+        _weightSum = weightSumAfterAdd;
+
+        return bptAmountOut;
+    }
+
+    function _ensureConstantWeights() private view {
+        uint256 currentTime = block.timestamp;
+        bytes32 poolState = _getMiscData();
+
+        uint256 startTime = poolState.decodeUint32(_START_TIME_OFFSET);
+        uint256 endTime = poolState.decodeUint32(_END_TIME_OFFSET);
+
+        if (currentTime < startTime) {
+            _revert(Errors.REMOVE_TOKEN_PENDING_WEIGHT_CHANGE);
+        } else if (currentTime < endTime) {
+            _revert(Errors.REMOVE_TOKEN_DURING_WEIGHT_CHANGE);
+        }
     }
 
     /**
      * @dev Getter for the sum of all weights. In initially FixedPoint.ONE, it can be higher or lower
      * as a result of adds and removes.
      */
-    function getTotalWeight() external view returns (uint256) {
-        return _totalWeight;
+    function getWeightSum() external view returns (uint256) {
+        return _weightSum;
     }
 
     /**
@@ -718,7 +836,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
             // Store decimal difference instead of actual scaling factor
             _tokenState[token] = tokenState
                 .insertUint64(startWeights[i].compress64(), _START_WEIGHT_OFFSET)
-                .insertUint32(endWeight.compress32(), _END_WEIGHT_OFFSET)
+                .insertUint64(endWeight.compress64(), _END_WEIGHT_OFFSET)
                 .insertUint5(uint256(18).sub(ERC20(address(token)).decimals()), _DECIMAL_DIFF_OFFSET);
 
             normalizedSum = normalizedSum.add(endWeight);
@@ -780,7 +898,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
 
     function _interpolateWeight(bytes32 tokenData, uint256 pctProgress) private pure returns (uint256 finalWeight) {
         uint256 startWeight = tokenData.decodeUint64(_START_WEIGHT_OFFSET).uncompress64();
-        uint256 endWeight = tokenData.decodeUint32(_END_WEIGHT_OFFSET).uncompress32();
+        uint256 endWeight = tokenData.decodeUint64(_END_WEIGHT_OFFSET).uncompress64();
 
         if (pctProgress == 0 || startWeight == endWeight) return startWeight;
         if (pctProgress >= FixedPoint.ONE) return endWeight;

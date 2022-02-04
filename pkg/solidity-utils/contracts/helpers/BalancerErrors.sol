@@ -161,7 +161,8 @@ library Errors {
     uint256 internal constant UNAUTHORIZED_OPERATION = 344;
     uint256 internal constant UNINITIALIZED_POOL_CONTROLLER = 345;
     uint256 internal constant REMOVE_TOKEN_DURING_WEIGHT_CHANGE = 346;
-    uint256 internal constant MAX_WEIGHT = 347;
+    uint256 internal constant REMOVE_TOKEN_PENDING_WEIGHT_CHANGE = 347;
+    uint256 internal constant MAX_WEIGHT = 348;
 
     // Lib
     uint256 internal constant REENTRANCY = 400;
