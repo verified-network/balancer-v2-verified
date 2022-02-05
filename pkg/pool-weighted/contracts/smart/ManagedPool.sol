@@ -374,9 +374,9 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
         uint256 tokenAmountIn,
         address assetManager,
         uint256 minBptPrice,
-        address sender
+        address recipient
     ) external authenticate whenNotPaused returns (uint256) {
-        return _addToken(token, normalizedWeight, tokenAmountIn, assetManager, minBptPrice, sender);
+        return _addToken(token, normalizedWeight, tokenAmountIn, assetManager, minBptPrice, recipient);
     }
 
     function _addToken(
@@ -385,7 +385,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
         uint256 tokenAmountIn,
         address assetManager,
         uint256 minBptPrice,
-        address sender
+        address recipient
     ) internal returns (uint256) {
         _require(normalizedWeight >= WeightedMath._MIN_WEIGHT, Errors.MIN_WEIGHT);
         // The max weight actually depends on the number of other tokens, but this is handled below
@@ -485,6 +485,52 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
 
         getVault().registerTokens(getPoolId(), tokensToAdd, assetManagers);
 
+        // Now indexes are different, and collected fees might have incorrect indices
+
+        // Overwrite tokens with current list (and new indices)
+        (tokens, , ) = getVault().getPoolTokens(getPoolId());
+        uint256[] memory maxAmountsIn = new uint256[](tokens.length);
+        uint256 tokenIndex;
+
+        for (uint256 i = 0; i < tokens.length; i++) {
+            IERC20 ithToken = tokens[i];
+
+            if (ithToken == token) {
+                // Add new entry with 0 collected fees
+                _tokenCollectedManagementFees.set(token, 0);
+ 
+                // This is the new one we're joining with
+                maxAmountsIn[i] = tokenAmountIn;
+                tokenIndex = i;
+            }
+            
+            // Set the index, so that we can still use unchecked_at; 100 error is OUT_OF_BOUNDS
+            _tokenCollectedManagementFees.setIndex(ithToken, i, 100);
+        }
+
+        // Store token data, and update the token count
+        bytes32 tokenState;
+
+        _tokenState[token] = tokenState
+                .insertUint64(normalizedWeight.compress64(), _START_WEIGHT_OFFSET)
+                .insertUint64(normalizedWeight.compress64(), _END_WEIGHT_OFFSET)
+                .insertUint5(uint256(18).sub(ERC20(address(token)).decimals()), _DECIMAL_DIFF_OFFSET);
+        _setMiscData(_getMiscData().insertUint7(tokens.length, _TOTAL_TOKENS_OFFSET));
+
+        // Special join
+
+        getVault().joinPool(
+            getPoolId(),
+            address(this),
+            payable(recipient),
+            IVault.JoinPoolRequest({
+                assets: _asIAsset(tokens),
+                maxAmountsIn: maxAmountsIn,
+                userData: abi.encode(WeightedPoolUserData.JoinKind.ADD_TOKEN, tokenIndex, tokenAmountIn),
+                fromInternalBalance: false
+            })
+        );
+
         // If done in two stages, the controller would externally calculate a minimum BPT price (i.e., 1 token = x BPT),
         // based on dollar values.
         // BPT price = (totalSupply * weight)/balance, where balance should be set to:
@@ -497,15 +543,6 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
         // 
         // In the commit stage, the actual desired balance would be passed in, and addToken would verify
         // the final BPT price.
-
-        // Store token data, and update the token count
-        bytes32 tokenState;
-
-        _tokenState[token] = tokenState
-                .insertUint64(normalizedWeight.compress64(), _START_WEIGHT_OFFSET)
-                .insertUint64(normalizedWeight.compress64(), _END_WEIGHT_OFFSET)
-                .insertUint5(uint256(18).sub(ERC20(address(token)).decimals()), _DECIMAL_DIFF_OFFSET);
-        _setMiscData(_getMiscData().insertUint7(tokens.length + 1, _TOTAL_TOKENS_OFFSET));
 
         _weightSum = weightSumAfterAdd;
 
@@ -520,9 +557,9 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
         uint256 endTime = poolState.decodeUint32(_END_TIME_OFFSET);
 
         if (currentTime < startTime) {
-            _revert(Errors.REMOVE_TOKEN_PENDING_WEIGHT_CHANGE);
+            _revert(Errors.CHANGE_TOKENS_PENDING_WEIGHT_CHANGE);
         } else if (currentTime < endTime) {
-            _revert(Errors.REMOVE_TOKEN_DURING_WEIGHT_CHANGE);
+            _revert(Errors.CHANGE_TOKENS_DURING_WEIGHT_CHANGE);
         }
     }
 
@@ -669,19 +706,51 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
             uint256[] memory dueProtocolFeeAmounts
         )
     {
-        // If swaps are disabled, the only join kind that is allowed is the proportional one, as all others involve
-        // implicit swaps and alter token prices.
+        // If swaps are disabled, the only regular join kind that is allowed is the proportional one, as all others involve
+        // implicit swaps and alter token prices. Add token is also allowed, since it does not change prices of the existing tokens.
+        WeightedPoolUserData.JoinKind kind = userData.joinKind();
+
         _require(
-            getSwapEnabled() || userData.joinKind() == WeightedPoolUserData.JoinKind.ALL_TOKENS_IN_FOR_EXACT_BPT_OUT,
+            getSwapEnabled() || kind == WeightedPoolUserData.JoinKind.ALL_TOKENS_IN_FOR_EXACT_BPT_OUT || kind == WeightedPoolUserData.JoinKind.ADD_TOKEN,
             Errors.INVALID_JOIN_EXIT_KIND_WHILE_SWAPS_DISABLED
         );
-        // Check allowlist for LPs, if applicable
-        _require(isAllowedAddress(sender), Errors.ADDRESS_NOT_ALLOWLISTED);
 
-        _subtractCollectedFees(balances);
+        if (WeightedPoolUserData.JoinKind.ADD_TOKEN == kind) {
+            (bptAmountOut, amountsIn) = _joinAddToken(sender, userData);
+        }
+        else {
+            // Check allowlist for LPs, if applicable
+            _require(isAllowedAddress(sender), Errors.ADDRESS_NOT_ALLOWLISTED);
 
-        (bptAmountOut, amountsIn) = _doJoin(balances, _getNormalizedWeights(), scalingFactors, userData);
+            _subtractCollectedFees(balances);
+
+            (bptAmountOut, amountsIn) = _doJoin(balances, _getNormalizedWeights(), scalingFactors, userData);
+        }
+
         dueProtocolFeeAmounts = new uint256[](_getTotalTokens());
+    }
+
+    function _joinAddToken(address sender, bytes memory userData)
+        private
+        view
+        returns (uint256, uint256[] memory)
+    {
+        // This join function can only be called by the Pool itself - the authorization logic that governs when that
+        // call can be made resides in addToken.
+        _require(sender == address(this), Errors.UNAUTHORIZED_JOIN);
+
+        // No BPT will be issued for the join operation itself. The `addToken` function calculates and returns
+        // the bptAmountOut, but leaves any further action, such as minting BPT, up to the caller.
+        uint256 bptAmountOut = 0;
+
+        // Note that there is no maximum amountsIn parameter: this is handled by `IVault.joinPool`.
+
+        (uint256 tokenIndex, uint256 amountIn) = userData.addToken();
+
+        uint256[] memory amountsIn = new uint256[](_getTotalTokens());
+        amountsIn[tokenIndex] = amountIn;
+
+        return (bptAmountOut, amountsIn);
     }
 
     function _onExitPool(
