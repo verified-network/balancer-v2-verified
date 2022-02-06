@@ -442,8 +442,6 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
             );
         }
 
-        //uint256 newTokenDenormalizedWeight = normalizedWeight.mulDown(weightSumAfterAdd);
-
         // Calculate the bptAmountOut equivalent to adding the token at the given weight
         // The BPT price of a token = S / (B/Wn) = (S * Wn) / B;
         // where S = totalSupply, Wn = normalized weight, and B = balance
