@@ -28,7 +28,7 @@ describe('ManagedPool', function () {
     [, owner, other] = await ethers.getSigners();
   });
 
-  const MAX_TOKENS = 50;
+  const MAX_TOKENS = 30;
   const TOKEN_COUNT = 20;
 
   const POOL_SWAP_FEE_PERCENTAGE = fp(0.01);
@@ -988,6 +988,52 @@ describe('ManagedPool', function () {
           });
         });
       });
+    });
+  });
+
+  describe('add token', () => {
+    let vault: Vault;
+    let newToken: string;
+
+    sharedBeforeEach('deploy Vault', async () => {
+      vault = await Vault.create();
+    });
+
+    context('max-token pool', () => {
+      sharedBeforeEach('deploy max-token pool', async () => {
+        allTokens = await TokenList.create(MAX_TOKENS + 1, { sorted: true });
+        newToken = allTokens.get(MAX_TOKENS).address;
+
+        const params = {
+          tokens: allTokens.subset(MAX_TOKENS),
+          weights: Array(MAX_TOKENS).fill(fp(1 / MAX_TOKENS)),
+          owner: owner.address,
+          poolType: WeightedPoolType.MANAGED_POOL,
+          swapEnabledOnStart: true,
+          vault,
+        };
+        console.log(params);
+        pool = await WeightedPool.create(params);
+      });
+
+      it('prevents adding to a max-token pool', async () => {
+        await expect(pool.addToken(owner, newToken, fp(0.01), fp(1), ZERO_ADDRESS, 0, owner.address, other.address)).to.be.revertedWith('MAX_TOKENS');
+      });
+
+      it('reverts if the vault is called directly', async () => {
+        await expect(
+          vault.instance.connect(sender).joinPool(await pool.getPoolId(), sender.address, other.address, {
+            assets: allTokens.subset(MAX_TOKENS),
+            maxAmountsIn: new Array(MAX_TOKENS).fill(fp(1000)),
+            userData: ManagedPoolEncoder.joinForAddToken(newToken, fp(100)),
+            toInternalBalance: false,
+          })
+        ).to.be.revertedWith('UNAUTHORIZED_JOIN');
+      });
+
+      it('can deploy a pool', async () => {
+        expect(true).to.be.true;
+      })
     });
   });
 });

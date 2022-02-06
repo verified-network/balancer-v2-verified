@@ -684,4 +684,18 @@ export default class WeightedPool {
     const result = await this.instance.getCollectedManagementFees();
     return { amounts: result.collectedFees, tokenAddresses: result.tokens };
   }
+
+  async addToken(
+    from: SignerWithAddress,
+    token: string,
+    normalizedWeight: BigNumberish,
+    tokenAmountIn: BigNumberish,
+    assetManager: string,
+    minBptPrice: BigNumberish,
+    sender: string,
+    recipient: string
+  ): Promise<ContractTransaction> {
+    const pool = this.instance.connect(from);
+    return await pool.addToken(token, normalizedWeight, tokenAmountIn, assetManager, minBptPrice, sender, recipient);
+  }
 }

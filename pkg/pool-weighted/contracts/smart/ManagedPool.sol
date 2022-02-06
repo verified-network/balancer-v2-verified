@@ -62,7 +62,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
 
     // The upper bound is WeightedMath.MAX_WEIGHTED_TOKENS, but this is constrained by other factors, such as Pool
     // creation gas consumption.
-    uint256 private constant _MAX_MANAGED_TOKENS = 50;
+    uint256 private constant _MAX_MANAGED_TOKENS = 30;
 
     uint256 private constant _MAX_MANAGEMENT_SWAP_FEE_PERCENTAGE = 1e18; // 100%
 
@@ -366,7 +366,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
      * - Join the pool, pulling in the tokenAmountIn from the sender
      * - Increase the total weight, and update the number of tokens and `_tokenState`
      *   (all other weights then scale accordingly)
-     * - REturn the BPT value of the new token, for possible use by the caller
+     * - Return the BPT value of the new token, for possible use by the caller
      */
     function addToken(
         IERC20 token,
@@ -374,9 +374,10 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
         uint256 tokenAmountIn,
         address assetManager,
         uint256 minBptPrice,
+        address sender,
         address recipient
     ) external authenticate whenNotPaused returns (uint256) {
-        return _addToken(token, normalizedWeight, tokenAmountIn, assetManager, minBptPrice, recipient);
+        return _addToken(token, normalizedWeight, tokenAmountIn, assetManager, minBptPrice, sender, recipient);
     }
 
     function _validateAddToken(
@@ -556,6 +557,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
         _updateTokenStateAfterAdd(tokens.length, token, denormalizedWeight);
     }
 
+    // Not worrying about updating the invariant yet, or paying protocol fees, since that will all likely change
     function _joinAddToken(
         IERC20[] memory tokens,
         uint256 tokenIndex,
@@ -576,12 +578,31 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
         );
     }
 
+    /**
+     * @dev 1) Validate the operation (and calculate the new weightSum and bptAmountOut to return)
+     *         - the incoming normalizedWeight is valid
+     *         - adding a token will not exceed the token limit
+     *         - there is no ongoing or pending weight change
+     *         - adding the new token at the given weight does not lower any other weights below the minimum
+     *         - the final BPT price is at or above the calculated minimum
+     *      2) Register the new token, with the given asset manager (and return the final sorted token list,
+     *         and index of the new token). Note that the token order can completely change. Note that after
+     *         registration and before joining, the pool is in an invalid state, with a zero invariant.
+     *         - register the token with the Vault
+     *         - adjust the management fees data structure to the new token order (preserving any uncollected fees)
+     *         - adjust the rest of the token state (including token count)
+     *      3) Join the pool, transferring tokens to the Vault, and restoring the pool to functional status
+     *      4) Finally, update the stored weightSum, and return the bptAmountOut. The caller may then mint BPT,
+     *         depending on the use case.
+     */ 
+
     function _addToken(
         IERC20 token,
         uint256 normalizedWeight,
         uint256 tokenAmountIn,
         address assetManager,
         uint256 minBptPrice,
+        address sender,
         address recipient
     ) internal returns (uint256) {
         (uint256 weightSumAfterAdd, uint256 bptAmountOut) = _validateAddToken(
@@ -598,10 +619,14 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
             assetManager
         );
 
+        // Transfer tokens from the sender to this contract, since the sender for the join must be the pool
+        token.transferFrom(sender, address(this), tokenAmountIn);
+    
         _joinAddToken(tokens, tokenIndex, tokenAmountIn, maxAmountsIn, recipient);
 
         // If done in two stages, the controller would externally calculate a minimum BPT price (i.e., 1 token = x BPT),
         // based on dollar values.
+        //
         // BPT price = (totalSupply * weight)/balance, where balance should be set to:
         // (old USD value of pool) * WSa/WSb * weight of new token
         //
@@ -612,6 +637,8 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
         //
         // In the commit stage, the actual desired balance would be passed in, and addToken would verify
         // the final BPT price.
+        //
+        // The controller might also impose other limitations, such as not allowing (or allowlisting) asset managers.
 
         _weightSum = weightSumAfterAdd;
 
