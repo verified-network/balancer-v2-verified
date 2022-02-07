@@ -28,7 +28,7 @@ describe('ManagedPool', function () {
     [, owner, other] = await ethers.getSigners();
   });
 
-  const MAX_TOKENS = 30;
+  const MAX_TOKENS = 38;
   const TOKEN_COUNT = 20;
 
   const POOL_SWAP_FEE_PERCENTAGE = fp(0.01);
@@ -991,9 +991,10 @@ describe('ManagedPool', function () {
     });
   });
 
-  describe('add token', () => {
+  describe.only('add token', () => {
     let vault: Vault;
     let newToken: string;
+    let initialBalances: BigNumber[];
 
     sharedBeforeEach('deploy Vault', async () => {
       vault = await Vault.create();
@@ -1003,6 +1004,9 @@ describe('ManagedPool', function () {
       sharedBeforeEach('deploy max-token pool', async () => {
         allTokens = await TokenList.create(MAX_TOKENS + 1, { sorted: true });
         newToken = allTokens.get(MAX_TOKENS).address;
+        initialBalances = Array(MAX_TOKENS).fill(fp(1));
+        await allTokens.mint({ to: [owner], amount: fp(100) });
+        await allTokens.approve({ from: owner, to: vault.address });
 
         const params = {
           tokens: allTokens.subset(MAX_TOKENS),
@@ -1012,8 +1016,9 @@ describe('ManagedPool', function () {
           swapEnabledOnStart: true,
           vault,
         };
-        console.log(params);
         pool = await WeightedPool.create(params);
+
+        await pool.init({ from: owner, initialBalances });
       });
 
       it('prevents adding to a max-token pool', async () => {
@@ -1022,8 +1027,8 @@ describe('ManagedPool', function () {
 
       it('reverts if the vault is called directly', async () => {
         await expect(
-          vault.instance.connect(sender).joinPool(await pool.getPoolId(), sender.address, other.address, {
-            assets: allTokens.subset(MAX_TOKENS),
+          vault.instance.connect(owner).joinPool(await pool.getPoolId(), owner.address, other.address, {
+            assets: allTokens.subset(MAX_TOKENS).addresses,
             maxAmountsIn: new Array(MAX_TOKENS).fill(fp(1000)),
             userData: ManagedPoolEncoder.joinForAddToken(newToken, fp(100)),
             toInternalBalance: false,

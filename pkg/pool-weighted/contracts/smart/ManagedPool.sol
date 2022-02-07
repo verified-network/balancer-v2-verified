@@ -62,7 +62,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
 
     // The upper bound is WeightedMath.MAX_WEIGHTED_TOKENS, but this is constrained by other factors, such as Pool
     // creation gas consumption.
-    uint256 private constant _MAX_MANAGED_TOKENS = 30;
+    uint256 private constant _MAX_MANAGED_TOKENS = 38;
 
     uint256 private constant _MAX_MANAGEMENT_SWAP_FEE_PERCENTAGE = 1e18; // 100%
 
@@ -1016,6 +1016,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
             (actionId == getActionId(ManagedPool.removeAllowedAddress.selector)) ||
             (actionId == getActionId(ManagedPool.setMustAllowlistLPs.selector)) ||
             (actionId == getActionId(ManagedPool.setManagementSwapFeePercentage.selector)) ||
+            (actionId == getActionId(ManagedPool.addToken.selector)) ||
             super._isOwnerOnlyAction(actionId);
     }
 
