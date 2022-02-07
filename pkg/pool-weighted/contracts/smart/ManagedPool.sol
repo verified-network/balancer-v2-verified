@@ -619,6 +619,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
 
         // Transfer tokens from the sender to this contract, since the sender for the join must be the pool
         token.transferFrom(sender, address(this), tokenAmountIn);
+        token.approve(address(getVault()), tokenAmountIn);
     
         _joinAddToken(tokens, tokenIndex, tokenAmountIn, maxAmountsIn, recipient);
 
