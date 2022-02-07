@@ -478,7 +478,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
             _upscale(tokenAmountIn, _computeScalingFactor(token))
         );
 
-        require(actualBptPrice >= minBptPrice, "BPT price too low");
+        _require(actualBptPrice >= minBptPrice, Errors.MIN_BPT_PRICE_ON_REMOVE);
     }
 
     function _adjustCollectedManagementFees(IERC20 token, uint256 tokenAmountIn)

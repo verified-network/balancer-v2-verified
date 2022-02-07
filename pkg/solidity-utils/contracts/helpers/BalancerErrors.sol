@@ -165,6 +165,7 @@ library Errors {
     uint256 internal constant CHANGE_TOKENS_PENDING_WEIGHT_CHANGE = 347;
     uint256 internal constant MAX_WEIGHT = 348;
     uint256 internal constant UNAUTHORIZED_JOIN = 349;
+    uint256 internal constant MIN_BPT_PRICE_ON_REMOVE = 350;
 
     // Lib
     uint256 internal constant REENTRANCY = 400;
