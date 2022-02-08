@@ -76,7 +76,7 @@ const balancerErrorCodes: Record<string, string> = {
   '347': 'CHANGE_TOKENS_PENDING_WEIGHT_CHANGE',
   '348': 'MAX_WEIGHT',
   '349': 'UNAUTHORIZED_JOIN',
-  '350': 'MIN_BPT_PRICE_ON_REMOVE',
+  '350': 'MIN_BPT_PRICE_ADD_TOKEN',
   '400': 'REENTRANCY',
   '401': 'SENDER_NOT_ALLOWED',
   '402': 'PAUSED',

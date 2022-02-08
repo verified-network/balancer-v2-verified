@@ -999,6 +999,9 @@ describe('ManagedPool', function () {
     let initialBalances: BigNumber[];
     let poolTokens: TokenList;
 
+    const swapFeePercentage = fp(0.02);
+    const managementSwapFeePercentage = fp(0.8);
+
     sharedBeforeEach('deploy Vault', async () => {
       vault = await Vault.create();
     });
@@ -1042,7 +1045,7 @@ describe('ManagedPool', function () {
       });
     });
 
-    describe.only('3-token pool', () => {
+    describe('3-token pool', () => {
       const numPoolTokens = 3;
       const totalTokens = numPoolTokens * 2 + 1;
       // We want to be able to add at known positions, so create the pool with extra tokens:
@@ -1060,22 +1063,102 @@ describe('ManagedPool', function () {
 
       function itCanAddAToken(tokenIndex: number, normalizedWeight: BigNumber, swapsDisabled: boolean): void {
         describe('when parameters are valid', () => {
+          //let weightsBefore: BigNumber[];
+          const expectedWeightsAfter: Map<string, BigNumber> = new Map<string, BigNumber>();
+          const expectedTokensAfter: string[] = [];
+          const tokenAmountIn = fp(1);
+
           sharedBeforeEach('set swap state', async () => {
             if (swapsDisabled) {
               await pool.setSwapEnabled(owner, false);
             }
-          });
-  
-          it(`adds token at ${tokenIndex} at ${fromFp(normalizedWeight).toFixed(2)}, with swapDisabled=${swapsDisabled}`, async () => {
-            await pool.addToken(owner, addedTokens[tokenIndex].address, normalizedWeight, fp(1), ZERO_ADDRESS, 0, owner.address, other.address);
-            const { assetManager } = await vault.getPoolTokenInfo(await pool.getPoolId(), addedTokens[0]);
 
-            // Has no asset manager
-            expect(assetManager).to.equal(ZERO_ADDRESS);
+            newTokenAddress = addedTokens[tokenIndex].address;
+
+            //weightsBefore = await pool.getNormalizedWeights();
+            //const weightSum = await pool.instance.getWeightSum();
+            const { tokens } = await pool.getTokens();
+            //const x = fromFp(weightSum).div(fromFp(fp(1).sub(normalizedWeight)));
+            //const weightSumAfterAdd = fp(x);
+            //console.log(`Weight sum after add: ${weightSumAfterAdd}`);
+
+            // Expected tokens are the existing ones plus the one we're adding
+            tokens.map((token) => expectedTokensAfter.push(token));
+            expectedTokensAfter.push(newTokenAddress);
+            //console.log(`Token added: ${tokenToAdd}. Norm: ${normalizedWeight}. adjusted: ${normalizedWeight.mul(weightSumAfterAdd).div(fp(1))}`);
+            //expectedWeightsAfter.set(tokenToAdd, normalizedWeight.mul(weightSumAfterAdd).div(fp(1)));
+            //weightsBefore.map((w, i) => expectedWeightsAfter.set(tokens[i], fp(fromFp(w).div(fromFp(weightSumAfterAdd)))));
+          });
+
+          it('calculates bptAmountOut', async () => {
+            await pool.instance
+              .connect(owner)
+              .checkAddTokenBptAmount(
+                addedTokens[tokenIndex].address,
+                normalizedWeight,
+                fp(1),
+                ZERO_ADDRESS,
+                0,
+                owner.address,
+                other.address
+              );
+          });
+
+          context('when token is added', () => {
+            sharedBeforeEach('add token', async () => {
+              const tx = await pool.addToken(
+                owner,
+                newTokenAddress,
+                normalizedWeight,
+                tokenAmountIn,
+                ZERO_ADDRESS,
+                0,
+                owner.address,
+                other.address
+              );
+              const receipt = await tx.wait();
+              expectEvent.inReceipt(receipt, 'TokenAdded', {
+                token: newTokenAddress,
+                weight: normalizedWeight,
+                initialBalance: tokenAmountIn,
+              });
+            });
+
+            it(`adds token at ${tokenIndex} at ${fromFp(normalizedWeight).toFixed(
+              2
+            )}, with swapDisabled=${swapsDisabled}`, async () => {
+              const { assetManager } = await vault.getPoolTokenInfo(await pool.getPoolId(), addedTokens[tokenIndex]);
+
+              // Has no asset manager
+              expect(assetManager).to.equal(ZERO_ADDRESS);
+              expect(await pool.instance.getTotalTokens()).to.equal(numPoolTokens + 1);
+            });
+
+            it('inserts the token', async () => {
+              const { tokens } = await pool.getTokens();
+
+              expect(tokens).to.have.members(expectedTokensAfter);
+            });
+
+            // The weight normalization is in a separate PR, not implemented here, so this won't work
+            it.skip('rebalances weights', async () => {
+              const { tokens } = await pool.getTokens();
+              const finalWeights = await pool.getNormalizedWeights();
+
+              tokens.forEach((token, i) => {
+                expect(finalWeights[i]).to.equal(expectedWeightsAfter.get(token));
+              });
+            });
+
+            it('transfers initial balance of new token', async () => {
+              const { balances } = await pool.getTokens();
+
+              expect(balances[tokenIndex]).to.equal(tokenAmountIn);
+            });
           });
         });
       }
-  
+
       sharedBeforeEach('deploy pool', async () => {
         allTokens = await TokenList.create(totalTokens, { sorted: true, varyDecimals: true });
         let j = 0;
@@ -1103,6 +1186,8 @@ describe('ManagedPool', function () {
           owner: owner.address,
           poolType: WeightedPoolType.MANAGED_POOL,
           swapEnabledOnStart: true,
+          swapFeePercentage: swapFeePercentage,
+          managementSwapFeePercentage: managementSwapFeePercentage,
           vault,
         };
         pool = await WeightedPool.create(params);
@@ -1163,7 +1248,7 @@ describe('ManagedPool', function () {
         it('when the bptPrice is too low', async () => {
           await expect(
             pool.addToken(owner, newTokenAddress, fp(0.1), fp(1), ZERO_ADDRESS, fp(1000), owner.address, other.address)
-          ).to.be.revertedWith('MIN_BPT_PRICE_ON_REMOVE');
+          ).to.be.revertedWith('MIN_BPT_PRICE_ADD_TOKEN');
         });
 
         it('when the token is already in the pool', async () => {
@@ -1186,18 +1271,84 @@ describe('ManagedPool', function () {
       itCanAddAToken(0, fp(0.1), true);
 
       for (let i = 0; i < numPoolTokens + 1; i++) {
-        for (let w = 0.01; w < 0.7; w += 0.09) {
-          //itCanAddAToken(i, fp(w), false);
-        }
+        //for (let w = 0.01; w < 0.7; w += 0.09) {
+        itCanAddAToken(i, fp(0.2), false);
+        //}
       }
 
       context('with an asset manager', () => {
         it('registers a token with an asset manager', async () => {
-          await pool.addToken(owner, addedTokens[0].address, fp(0.1), fp(1), mockAssetManager.address, 0, owner.address, other.address)
+          await pool.addToken(
+            owner,
+            addedTokens[0].address,
+            fp(0.1),
+            fp(1),
+            mockAssetManager.address,
+            0,
+            owner.address,
+            other.address
+          );
 
           const { assetManager } = await vault.getPoolTokenInfo(await pool.getPoolId(), addedTokens[0]);
 
           expect(assetManager).to.equal(mockAssetManager.address);
+        });
+      });
+
+      context('with pending management fees', () => {
+        let expectedManagementFee: BigNumber;
+
+        sharedBeforeEach('incur management fees', async () => {
+          const singleSwap = {
+            poolId: await pool.getPoolId(),
+            kind: SwapKind.GivenIn,
+            assetIn: poolTokens.first.address,
+            assetOut: poolTokens.second.address,
+            amount: fp(0.01),
+            userData: '0x',
+          };
+          const funds = {
+            sender: owner.address,
+            fromInternalBalance: false,
+            recipient: owner.address,
+            toInternalBalance: false,
+          };
+          const limit = 0; // Minimum amount out
+          const deadline = MAX_UINT256;
+
+          const expectedSwapFee = singleSwap.amount.mul(swapFeePercentage).div(fp(1));
+          expectedManagementFee = expectedSwapFee.mul(managementSwapFeePercentage).div(fp(1));
+
+          // The swap fee depends exclusively on the amount in on swaps given in, so we can simply perform the same swap
+          // twice and expect to get twice the expected amount of collected fees.
+
+          await vault.instance.connect(owner).swap(singleSwap, funds, limit, deadline);
+          await vault.instance.connect(owner).swap(singleSwap, funds, limit, deadline);
+
+          const { amounts: actualFees } = await pool.getCollectedManagementFees();
+
+          // The fee was charged in the first token (in)
+          expect(actualFees[0]).to.be.equalWithError(expectedManagementFee.mul(2), 0.001);
+          expect(actualFees.filter((_, i) => i != 0)).to.be.zeros;
+        });
+
+        it('preserves management fees', async () => {
+          await pool.addToken(
+            owner,
+            addedTokens[0].address,
+            fp(0.1),
+            fp(1),
+            mockAssetManager.address,
+            0,
+            owner.address,
+            other.address
+          );
+
+          const { amounts: actualFees } = await pool.getCollectedManagementFees();
+
+          // The fee was charged in the first token (in)
+          expect(actualFees[0]).to.be.equalWithError(expectedManagementFee.mul(2), 0.001);
+          expect(actualFees.filter((_, i) => i != 0)).to.be.zeros;
         });
       });
     });

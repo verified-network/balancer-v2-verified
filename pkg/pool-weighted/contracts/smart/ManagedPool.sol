@@ -478,7 +478,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
             _upscale(tokenAmountIn, _computeScalingFactor(token))
         );
 
-        _require(actualBptPrice >= minBptPrice, Errors.MIN_BPT_PRICE_ON_REMOVE);
+        _require(actualBptPrice >= minBptPrice, Errors.MIN_BPT_PRICE_ADD_TOKEN);
     }
 
     function _adjustCollectedManagementFees(IERC20 token, uint256 tokenAmountIn)
@@ -592,7 +592,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
      *      3) Join the pool, transferring tokens to the Vault, and restoring the pool to functional status
      *      4) Finally, update the stored weightSum, and return the bptAmountOut. The caller may then mint BPT,
      *         depending on the use case.
-     */ 
+     */
 
     function _addToken(
         IERC20 token,
@@ -620,7 +620,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
         // Transfer tokens from the sender to this contract, since the sender for the join must be the pool
         token.transferFrom(sender, address(this), tokenAmountIn);
         token.approve(address(getVault()), tokenAmountIn);
-    
+
         _joinAddToken(tokens, tokenIndex, tokenAmountIn, maxAmountsIn, recipient);
 
         // If done in two stages, the controller would externally calculate a minimum BPT price (i.e., 1 token = x BPT),
@@ -641,6 +641,8 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
 
         _weightSum = weightSumAfterAdd;
 
+        emit TokenAdded(token, normalizedWeight, tokenAmountIn);
+
         return bptAmountOut;
     }
 
@@ -648,7 +650,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
      * @dev Getter for the sum of all weights. In initially FixedPoint.ONE, it can be higher or lower
      * as a result of adds and removes.
      */
-    function getWeightSum() external view returns (uint256) {
+    function getWeightSum() public view returns (uint256) {
         return _weightSum;
     }
 
@@ -800,7 +802,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
         );
 
         if (WeightedPoolUserData.JoinKind.ADD_TOKEN == kind) {
-            (bptAmountOut, amountsIn) = _joinAddToken(sender, userData);
+            (bptAmountOut, amountsIn) = _joinAddToken(sender, scalingFactors, userData);
         } else {
             // Check allowlist for LPs, if applicable
             _require(isAllowedAddress(sender), Errors.ADDRESS_NOT_ALLOWLISTED);
@@ -813,7 +815,11 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
         dueProtocolFeeAmounts = new uint256[](_getTotalTokens());
     }
 
-    function _joinAddToken(address sender, bytes memory userData) private view returns (uint256, uint256[] memory) {
+    function _joinAddToken(
+        address sender,
+        uint256[] memory scalingFactors,
+        bytes memory userData
+    ) private view returns (uint256, uint256[] memory) {
         // This join function can only be called by the Pool itself - the authorization logic that governs when that
         // call can be made resides in addToken.
         _require(sender == address(this), Errors.UNAUTHORIZED_JOIN);
@@ -827,7 +833,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
         (uint256 tokenIndex, uint256 amountIn) = userData.addToken();
 
         uint256[] memory amountsIn = new uint256[](_getTotalTokens());
-        amountsIn[tokenIndex] = amountIn;
+        amountsIn[tokenIndex] = _upscale(amountIn, scalingFactors[tokenIndex]);
 
         return (bptAmountOut, amountsIn);
     }
