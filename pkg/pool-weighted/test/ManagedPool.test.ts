@@ -322,10 +322,6 @@ describe('ManagedPool', function () {
         expect(endWeights).to.equalWithError(pool.normalizedWeights, 0.0001);
       });
 
-      it('reverts when querying last invariant', async () => {
-        await expect(pool.getLastInvariant()).to.be.revertedWith('UNHANDLED_BY_MANAGED_POOL');
-      });
-
       it('reverts if swap hook caller is not the vault', async () => {
         await expect(
           pool.instance.onSwap(
@@ -1247,7 +1243,7 @@ describe('ManagedPool', function () {
 
         it('when the bptPrice is too low', async () => {
           await expect(
-            pool.addToken(owner, newTokenAddress, fp(0.1), fp(1), ZERO_ADDRESS, fp(1000), owner.address, other.address)
+            pool.addToken(owner, newTokenAddress, fp(0.1), fp(1), ZERO_ADDRESS, fp(10000), owner.address, other.address)
           ).to.be.revertedWith('MIN_BPT_PRICE_ADD_TOKEN');
         });
 

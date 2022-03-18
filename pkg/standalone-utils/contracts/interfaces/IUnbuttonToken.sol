@@ -14,12 +14,12 @@
 
 pragma solidity ^0.7.0;
 
-import "./IAuthorizerAdaptor.sol";
+import "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/IERC20.sol";
 
-// For compatibility, we're keeping the same function names as in the original Curve code, including the mixed-case
-// naming convention.
-// solhint-disable func-name-mixedcase
+import "./IButtonWrapper.sol";
 
-interface IVotingEscrow {
-    function admin() external view returns (IAuthorizerAdaptor);
+// Balancer only supports ERC20 tokens, so we use this intermediate interface
+// to enforce ERC20-ness of UnbuttonTokens.
+interface IUnbuttonToken is IButtonWrapper, IERC20 {
+    // solhint-disable-previous-line no-empty-blocks
 }

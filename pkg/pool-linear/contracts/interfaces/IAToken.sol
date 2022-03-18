@@ -14,12 +14,10 @@
 
 pragma solidity ^0.7.0;
 
-import "./IAuthorizerAdaptor.sol";
-
-// For compatibility, we're keeping the same function names as in the original Curve code, including the mixed-case
-// naming convention.
-// solhint-disable func-name-mixedcase
-
-interface IVotingEscrow {
-    function admin() external view returns (IAuthorizerAdaptor);
+interface IAToken {
+    /**
+     * @dev returns the address of the aToken's underlying asset
+     */
+    // solhint-disable-next-line func-name-mixedcase
+    function UNDERLYING_ASSET_ADDRESS() external view returns (address);
 }

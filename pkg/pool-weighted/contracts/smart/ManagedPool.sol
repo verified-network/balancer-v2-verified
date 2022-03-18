@@ -708,25 +708,6 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
         }
     }
 
-    function _getNormalizedWeightsAndMaxWeightIndex()
-        internal
-        view
-        override
-        returns (uint256[] memory normalizedWeights, uint256 maxWeightTokenIndex)
-    {
-        normalizedWeights = _getNormalizedWeights();
-
-        maxWeightTokenIndex = 0;
-        uint256 maxNormalizedWeight = normalizedWeights[0];
-
-        for (uint256 i = 1; i < normalizedWeights.length; i++) {
-            if (normalizedWeights[i] > maxNormalizedWeight) {
-                maxWeightTokenIndex = i;
-                maxNormalizedWeight = normalizedWeights[i];
-            }
-        }
-    }
-
     // Swap overrides - revert unless swaps are enabled
 
     function _onSwapGivenIn(
@@ -765,10 +746,6 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
     // always pays zero protocol fees.
     // Additionally, we also check that only non-swap join and exit kinds are allowed while swaps are disabled.
 
-    function getLastInvariant() public pure override returns (uint256) {
-        _revert(Errors.UNHANDLED_BY_MANAGED_POOL);
-    }
-
     function _onJoinPool(
         bytes32,
         address sender,
@@ -783,11 +760,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
         virtual
         override
         whenNotPaused // All joins are disabled while the contract is paused.
-        returns (
-            uint256 bptAmountOut,
-            uint256[] memory amountsIn,
-            uint256[] memory dueProtocolFeeAmounts
-        )
+        returns (uint256 bptAmountOut, uint256[] memory amountsIn)
     {
         // If swaps are disabled, the only regular join kind that is allowed is the proportional one,
         // as all others involve implicit swaps and alter token prices. Add token is also allowed,
@@ -811,8 +784,6 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
 
             (bptAmountOut, amountsIn) = _doJoin(balances, _getNormalizedWeights(), scalingFactors, userData);
         }
-
-        dueProtocolFeeAmounts = new uint256[](_getTotalTokens());
     }
 
     function _joinAddToken(
@@ -847,16 +818,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
         uint256,
         uint256[] memory scalingFactors,
         bytes memory userData
-    )
-        internal
-        virtual
-        override
-        returns (
-            uint256 bptAmountIn,
-            uint256[] memory amountsOut,
-            uint256[] memory dueProtocolFeeAmounts
-        )
-    {
+    ) internal virtual override returns (uint256, uint256[] memory) {
         // Exits are not completely disabled while the contract is paused: proportional exits (exact BPT in for tokens
         // out) remain functional.
 
@@ -873,14 +835,7 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
 
         _subtractCollectedFees(balances);
 
-        (bptAmountIn, amountsOut) = _doManagedPoolExit(
-            sender,
-            balances,
-            _getNormalizedWeights(),
-            scalingFactors,
-            userData
-        );
-        dueProtocolFeeAmounts = new uint256[](_getTotalTokens());
+        return _doManagedPoolExit(sender, balances, _getNormalizedWeights(), scalingFactors, userData);
     }
 
     function _doManagedPoolExit(

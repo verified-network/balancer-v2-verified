@@ -12,14 +12,22 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+// https://github.com/buttonwood-protocol/button-wrappers/blob/main/contracts/UnbuttonToken.sol
+
 pragma solidity ^0.7.0;
 
-import "./IAuthorizerAdaptor.sol";
+import "@balancer-labs/v2-standalone-utils/contracts/test/MockUnbuttonERC20.sol";
 
-// For compatibility, we're keeping the same function names as in the original Curve code, including the mixed-case
-// naming convention.
-// solhint-disable func-name-mixedcase
+import "../interfaces/IAToken.sol";
 
-interface IVotingEscrow {
-    function admin() external view returns (IAuthorizerAdaptor);
+contract MockAaveAMPLToken is MockUnbuttonERC20, IAToken {
+     constructor(
+        address underlying_,
+        string memory name_,
+        string memory symbol_
+    ) MockUnbuttonERC20(underlying_, name_, symbol_) { }
+
+    function UNDERLYING_ASSET_ADDRESS() external view override returns (address) {
+        return _underlying;
+    }
 }
