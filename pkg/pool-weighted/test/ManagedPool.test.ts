@@ -1209,7 +1209,7 @@ describe('ManagedPool', function () {
         await pool.init({ from: owner, initialBalances });
       });
 
-      context.only('when parameters are invalid', () => {
+      context('when parameters are invalid', () => {
         it('when the normalized weight is invalid', async () => {
           newTokenAddress = addedTokens[0].address;
 

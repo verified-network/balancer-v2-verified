@@ -24,8 +24,6 @@ import "../BaseWeightedPool.sol";
 import "../WeightedPoolUserData.sol";
 import "./WeightCompression.sol";
 
-import "hardhat/console.sol";
-
 /**
  * @dev Weighted Pool with mutable tokens and weights, designed to be used in conjunction with a pool controller
  * contract (as the owner, containing any specific business logic). Since the pool itself permits "dangerous"
@@ -445,15 +443,15 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
         //uint256 weightSumMultiplier = FixedPoint.ONE.divDown(FixedPoint.ONE - normalizedWeight);
         weightSumAfterAdd = weightSumBeforeAdd.mulUp(FixedPoint.ONE.divDown(FixedPoint.ONE - normalizedWeight));
 
-        console.log("WeightSumAfterAdd: %s", weightSumAfterAdd);
         // Now we need to make sure the other token weights don't get scaled down below the minimum
         // normalized weight[i] = denormalized weight[i] / weightSumAfterAdd
         (IERC20[] memory tokens, , ) = getVault().getPoolTokens(getPoolId());
         for (uint256 i = 0; i < tokens.length; i++) {
-            
             _require(
-                _getTokenData(tokens[i]).decodeUint64(_END_DENORM_WEIGHT_OFFSET).uncompress64().divUp(weightSumAfterAdd) >=
-                    WeightedMath._MIN_WEIGHT,
+                _getTokenData(tokens[i])
+                    .decodeUint64(_END_DENORM_WEIGHT_OFFSET)
+                    .uncompress64(_MAX_DENORM_WEIGHT_SUM)
+                    .divUp(weightSumAfterAdd) >= WeightedMath._MIN_WEIGHT,
                 Errors.MIN_WEIGHT
             );
         }
