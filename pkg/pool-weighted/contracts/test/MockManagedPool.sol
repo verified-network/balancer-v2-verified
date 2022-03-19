@@ -37,7 +37,7 @@ contract MockManagedPool is ManagedPool {
         address sender,
         address recipient
     ) external {
-      uint256 weightSumBeforeAdd = getWeightSum();
+      uint256 weightSumBeforeAdd = getDenormWeightSum();
       uint256 weightSumAfterAdd = weightSumBeforeAdd.mulUp(FixedPoint.ONE.divDown(FixedPoint.ONE - normalizedWeight));
       uint256 weightSumRatio = weightSumAfterAdd.divDown(weightSumBeforeAdd);
       uint256 expectedBptAmountOut = totalSupply().mulDown(weightSumRatio.sub(FixedPoint.ONE));
