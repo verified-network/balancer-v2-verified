@@ -452,10 +452,9 @@ contract ManagedPool is BaseWeightedPool, ReentrancyGuard {
         (IERC20[] memory tokens, , ) = getVault().getPoolTokens(getPoolId());
         for (uint256 i = 0; i < tokens.length; i++) {
             _require(
-                _getTokenData(tokens[i])
-                    .decodeUint64(_END_DENORM_WEIGHT_OFFSET)
-                    .uncompress64(_MAX_DENORM_WEIGHT)
-                    .divUp(weightSumAfterAdd) >= WeightedMath._MIN_WEIGHT,
+                _getTokenData(tokens[i]).decodeUint64(_END_DENORM_WEIGHT_OFFSET).uncompress64(_MAX_DENORM_WEIGHT).divUp(
+                    weightSumAfterAdd
+                ) >= WeightedMath._MIN_WEIGHT,
                 Errors.MIN_WEIGHT
             );
         }
