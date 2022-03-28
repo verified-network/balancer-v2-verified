@@ -1,11 +1,8 @@
-import { BigNumber, Contract } from 'ethers';
+import { Contract } from 'ethers';
 
 import { deploy } from '@balancer-labs/v2-helpers/src/contract';
 import { shouldBehaveLikeMap } from './EnumerableMap.behavior';
 import { bn } from '../../../pvt/helpers/src/numbers';
-import { expect } from 'chai';
-import { ZERO_ADDRESS } from '@balancer-labs/v2-helpers/src/constants';
-import * as expectEvent from '@balancer-labs/v2-helpers/src/test/expectEvent';
 
 describe('EnumerableMap', () => {
   describe('EnumerableIERC20ToBytes32Map', () => {
