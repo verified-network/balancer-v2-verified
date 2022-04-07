@@ -1,12 +1,13 @@
 import { ethers } from 'hardhat';
 import { expect } from 'chai';
-import { BigNumber } from 'ethers';
+import { BigNumber, Contract } from 'ethers';
 import { bn, fp, fromFp, pct } from '@balancer-labs/v2-helpers/src/numbers';
 import { MINUTE, DAY, advanceTime, currentTimestamp, WEEK } from '@balancer-labs/v2-helpers/src/time';
 import * as expectEvent from '@balancer-labs/v2-helpers/src/test/expectEvent';
+import { deploy } from '@balancer-labs/v2-helpers/src/contract';
 import TokenList from '@balancer-labs/v2-helpers/src/models/tokens/TokenList';
 import Token from '@balancer-labs/v2-helpers/src/models/tokens/Token';
-import { ZERO_ADDRESS } from '@balancer-labs/v2-helpers/src/constants';
+import { MAX_UINT256, ZERO_ADDRESS } from '@balancer-labs/v2-helpers/src/constants';
 import Vault from '@balancer-labs/v2-helpers/src/models/vault/Vault';
 import WeightedPool from '@balancer-labs/v2-helpers/src/models/pools/weighted/WeightedPool';
 import { WeightedPoolType } from '@balancer-labs/v2-helpers/src/models/pools/weighted/types';
@@ -14,7 +15,6 @@ import { expectEqualWithError } from '@balancer-labs/v2-helpers/src/test/relativ
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/dist/src/signer-with-address';
 import { ManagedPoolEncoder, SwapKind } from '@balancer-labs/balancer-js';
 import { toNormalizedWeights } from '@balancer-labs/balancer-js';
-import { SwapKind } from '@balancer-labs/balancer-js';
 
 import { range } from 'lodash';
 
@@ -754,196 +754,188 @@ describe('ManagedPool', function () {
           upscaledBalances = [localBalances[0].mul(scaleFactor0), localBalances[1].mul(scaleFactor1)];
           upscaledSwapAmount = swapAmount.mul(scaleFactor0);
         });
-      });
-    });
-  });
 
-  describe('add token', () => {
-    let vault: Vault;
-    let newToken: string;
-    let initialBalances: BigNumber[];
-    let poolTokens: TokenList;
+        it('charges the expected protocol fee', async () => {
+          const actualProtocolFee = await protocolFeesCollector.getSwapFeePercentage();
+          expect(actualProtocolFee).to.equal(protocolFeePercentage);
+        });
 
-    const swapFeePercentage = fp(0.02);
-    const managementSwapFeePercentage = fp(0.8);
+        context('on swap given in', () => {
+          it('pays fees on swap given in', async () => {
+            const singleSwap = {
+              poolId: await pool.getPoolId(),
+              kind: SwapKind.GivenIn,
+              assetIn: poolTokens.first.address,
+              assetOut: poolTokens.second.address,
+              amount: swapAmount,
+              userData: '0x',
+            };
+            const funds = {
+              sender: owner.address,
+              fromInternalBalance: false,
+              recipient: other.address,
+              toInternalBalance: false,
+            };
+            const limit = 0; // Minimum amount out
+            const deadline = MAX_UINT256;
 
-    sharedBeforeEach('deploy Vault', async () => {
-      vault = await Vault.create();
-    });
+            const prevInvariant = await mockMath.invariant(poolWeights, upscaledBalances);
 
-    context('max-token pool', () => {
-      sharedBeforeEach('deploy max-token pool', async () => {
-        poolTokens = await TokenList.create(MAX_TOKENS + 1, { sorted: true });
-        newToken = poolTokens.get(MAX_TOKENS).address;
-        initialBalances = Array(MAX_TOKENS).fill(fp(1));
-        await poolTokens.mint({ to: [owner], amount: fp(100) });
-        await poolTokens.approve({ from: owner, to: vault.address });
-
-        const params = {
-          tokens: poolTokens.subset(MAX_TOKENS),
-          weights: Array(MAX_TOKENS).fill(fp(1 / MAX_TOKENS)),
-          owner: owner.address,
-          poolType: WeightedPoolType.MANAGED_POOL,
-          swapEnabledOnStart: true,
-          vault,
-        };
-        pool = await WeightedPool.create(params);
-
-        await pool.init({ from: owner, initialBalances });
-      });
-
-      it('prevents adding to a max-token pool', async () => {
-        await expect(
-          pool.addToken(owner, newToken, fp(0.01), fp(1), ZERO_ADDRESS, 0, owner.address, other.address)
-        ).to.be.revertedWith('MAX_TOKENS');
-      });
-
-      it('reverts if the vault is called directly', async () => {
-        await expect(
-          vault.instance.connect(owner).joinPool(await pool.getPoolId(), owner.address, other.address, {
-            assets: poolTokens.subset(MAX_TOKENS).addresses,
-            maxAmountsIn: new Array(MAX_TOKENS).fill(fp(1000)),
-            userData: ManagedPoolEncoder.joinForAddToken(newToken, fp(100)),
-            toInternalBalance: false,
-          })
-        ).to.be.revertedWith('UNAUTHORIZED_JOIN');
-      });
-    });
-
-    describe('3-token pool', () => {
-      const numPoolTokens = 3;
-      const totalTokens = numPoolTokens * 2 + 1;
-      // We want to be able to add at known positions, so create the pool with extra tokens:
-      // 0: <token to be added at beginning>
-      // 1: first pool token
-      // 2: <token to be added at position 1>
-      // 3: second pool token
-      // 4: <token to be added at position 2>
-      // 5: third pool token
-      // 6: <token to be appended to the end>
-      const existingTokens: Token[] = [];
-      const addedTokens: Token[] = [];
-      let poolWeights: BigNumber[] = [];
-      let newTokenAddress: string;
-
-      function itCanAddAToken(tokenIndex: number, normalizedWeight: BigNumber, swapsDisabled: boolean): void {
-        describe('when parameters are valid', () => {
-          //let weightsBefore: BigNumber[];
-          const expectedWeightsAfter: Map<string, BigNumber> = new Map<string, BigNumber>();
-          const expectedTokensAfter: string[] = [];
-          const tokenAmountIn = fp(1);
-
-          sharedBeforeEach('set swap state', async () => {
-            if (swapsDisabled) {
-              await pool.setSwapEnabled(owner, false);
-            }
-
-            newTokenAddress = addedTokens[tokenIndex].address;
-
-            const weightsBefore = await pool.getNormalizedWeights();
-            const weightSum = await pool.instance.getDenormWeightSum();
-            const { tokens } = await pool.getTokens();
-            const x = fromFp(weightSum).div(fromFp(fp(1).sub(normalizedWeight)));
-            const weightSumAfterAdd = fp(x);
-
-            // Expected tokens are the existing ones plus the one we're adding
-            tokens.map((token) => expectedTokensAfter.push(token));
-            expectedTokensAfter.push(newTokenAddress);
-            expectedWeightsAfter.set(newTokenAddress, normalizedWeight); // .mul(weightSumAfterAdd).div(fp(1)
-            weightsBefore.map((w, i) =>
-              expectedWeightsAfter.set(tokens[i], fp(fromFp(w).div(fromFp(weightSumAfterAdd))))
+            const adjustedAmountIn = upscaledSwapAmount.mul(fp(1).sub(swapFeePercentage)).div(fp(1));
+            const amountOut = await mockMath.outGivenIn(
+              upscaledBalances[0],
+              poolWeights[0],
+              upscaledBalances[1],
+              poolWeights[1],
+              adjustedAmountIn
             );
-          });
 
-          it('calculates bptAmountOut', async () => {
-            await pool.instance
-              .connect(owner)
-              .checkAddTokenBptAmount(
-                addedTokens[tokenIndex].address,
-                normalizedWeight,
-                fp(1),
-                ZERO_ADDRESS,
-                0,
-                owner.address,
-                other.address
-              );
-          });
+            const postBalances = [upscaledBalances[0].add(upscaledSwapAmount), upscaledBalances[1].sub(amountOut)];
+            const postInvariant = await mockMath.invariant(poolWeights, postBalances);
+            const totalSupply = await pool.totalSupply();
 
-          context('when token is added', () => {
-            sharedBeforeEach('add token', async () => {
-              const tx = await pool.addToken(
-                owner,
-                newTokenAddress,
-                normalizedWeight,
-                tokenAmountIn,
-                ZERO_ADDRESS,
-                0,
-                owner.address,
-                other.address
-              );
-              const receipt = await tx.wait();
-              expectEvent.inReceipt(receipt, 'TokenAdded', {
-                token: newTokenAddress,
-                weight: normalizedWeight,
-                initialBalance: tokenAmountIn,
-              });
-            });
+            const expectedProtocolFees = await mockMath.calculateDueProtocolSwapFeeBPTAmount(
+              totalSupply,
+              prevInvariant,
+              postInvariant,
+              protocolFeePercentage
+            );
 
-            it(`adds token at ${tokenIndex} at ${fromFp(normalizedWeight).toFixed(
-              2
-            )}, with swapDisabled=${swapsDisabled}`, async () => {
-              const { assetManager } = await vault.getPoolTokenInfo(await pool.getPoolId(), addedTokens[tokenIndex]);
+            await vault.instance.connect(owner).swap(singleSwap, funds, limit, deadline);
 
-              // Has no asset manager
-              expect(assetManager).to.equal(ZERO_ADDRESS);
-              expect(await pool.instance.getTotalTokens()).to.equal(numPoolTokens + 1);
-            });
+            bptFeeBalance = await pool.balanceOf(protocolFeesCollector.address);
 
-            it('inserts the token', async () => {
-              const { tokens } = await pool.getTokens();
-
-              expect(tokens).to.have.members(expectedTokensAfter);
-            });
-
-            it('rebalances weights', async () => {
-              const { tokens } = await pool.getTokens();
-              const finalWeights = await pool.getNormalizedWeights();
-
-              tokens.forEach((token, i) => {
-                const weightAfter = expectedWeightsAfter.get(token) || 0;
-                expect(finalWeights[i]).to.equalWithError(weightAfter, 0.0000001);
-              });
-            });
-
-            it('transfers initial balance of new token', async () => {
-              const { balances } = await pool.getTokens();
-
-              expect(balances[tokenIndex]).to.equal(tokenAmountIn);
-            });
+            expect(bptFeeBalance).to.equalWithError(expectedProtocolFees, 0.000001);
           });
         });
-      }
+
+        context('on swap given out', () => {
+          it('pays fees on swap given out', async () => {
+            const singleSwap = {
+              poolId: await pool.getPoolId(),
+              kind: SwapKind.GivenOut,
+              assetIn: poolTokens.second.address,
+              assetOut: poolTokens.first.address,
+              amount: swapAmount,
+              userData: '0x',
+            };
+            const funds = {
+              sender: owner.address,
+              fromInternalBalance: false,
+              recipient: other.address,
+              toInternalBalance: false,
+            };
+            const limit = MAX_UINT256; // Maximum amount in
+            const deadline = MAX_UINT256;
+
+            const prevInvariant = await mockMath.invariant(poolWeights, upscaledBalances);
+
+            const amountIn = await mockMath.inGivenOut(
+              upscaledBalances[1],
+              poolWeights[1],
+              upscaledBalances[0],
+              poolWeights[0],
+              upscaledSwapAmount
+            );
+
+            // Has to be a better way to do this...
+            const proportion = fp(1).sub(swapFeePercentage);
+            const adjustedAmountIn = fp(fromFp(amountIn).toNumber() / fromFp(proportion).toNumber());
+
+            const postBalances = [
+              upscaledBalances[1].sub(upscaledSwapAmount),
+              upscaledBalances[0].add(adjustedAmountIn),
+            ];
+            const postInvariant = await mockMath.invariant(poolWeights, postBalances);
+            const totalSupply = await pool.totalSupply();
+
+            const expectedProtocolFees = await mockMath.calculateDueProtocolSwapFeeBPTAmount(
+              totalSupply,
+              prevInvariant,
+              postInvariant,
+              protocolFeePercentage
+            );
+
+            await vault.instance.connect(owner).swap(singleSwap, funds, limit, deadline);
+
+            bptFeeBalance = await pool.balanceOf(protocolFeesCollector.address);
+
+            expect(bptFeeBalance).to.equalWithError(expectedProtocolFees, 0.000001);
+          });
+        });
+      });
+
+      describe('does not pay on join/exit', () => {
+        context('with balance changes', () => {
+          let currentBalances: BigNumber[];
+          let bptIn: BigNumber;
+
+          sharedBeforeEach('simulate increased initial balances', async () => {
+            // 4/3 of the initial balances
+            currentBalances = initialBalances.map((balance) => balance.mul(4).div(3));
+            bptIn = (await pool.balanceOf(owner)).div(10);
+          });
+
+          it('no protocol fees on join exact tokens in for BPT out', async () => {
+            await pool.joinGivenIn({ from: owner, amountsIn: fp(1), currentBalances });
+            bptFeeBalance = await pool.balanceOf(protocolFeesCollector.address);
+
+            expect(bptFeeBalance).to.be.zero;
+          });
+
+          it('no protocol fees on exit exact BPT in for one token out', async () => {
+            await pool.singleExitGivenIn({
+              from: owner,
+              bptIn: bptIn,
+              token: 0,
+              currentBalances,
+              protocolFeePercentage,
+            });
+
+            bptFeeBalance = await pool.balanceOf(protocolFeesCollector.address);
+
+            expect(bptFeeBalance).to.be.zero;
+          });
+
+          it('no protocol fees on exit exact BPT in for all tokens out', async () => {
+            await pool.multiExitGivenIn({
+              from: owner,
+              bptIn: bptIn,
+              currentBalances,
+              protocolFeePercentage,
+            });
+
+            bptFeeBalance = await pool.balanceOf(protocolFeesCollector.address);
+
+            expect(bptFeeBalance).to.be.zero;
+          });
+
+          it('no protocol fees on exit BPT In for exact tokens out', async () => {
+            const { balances } = await pool.getTokens();
+
+            await pool.exitGivenOut({
+              from: owner,
+              amountsOut: [balances[0].div(5), balances[1].div(5)],
+              maximumBptIn: MAX_UINT256,
+              protocolFeePercentage,
+            });
+
+            bptFeeBalance = await pool.balanceOf(protocolFeesCollector.address);
+
+            expect(bptFeeBalance).to.be.zero;
+          });
+        });
+      });
+    });
+
+    describe('management fees', () => {
+      let vault: Vault;
+      const swapFeePercentage = fp(0.02);
+      const managementSwapFeePercentage = fp(0.8);
+      let initialBptBalance: BigNumber;
 
       sharedBeforeEach('deploy pool', async () => {
-        allTokens = await TokenList.create(totalTokens, { sorted: true, varyDecimals: true });
-        let j = 0;
-        let i;
-        for (i = 1; i < totalTokens; i += 2) {
-          existingTokens[j++] = allTokens.get(i);
-        }
-
-        j = 0;
-        for (i = 0; i < totalTokens; i += 2) {
-          addedTokens[j++] = allTokens.get(i);
-        }
-
-        initialBalances = Array(numPoolTokens).fill(fp(1));
-        poolTokens = new TokenList(existingTokens);
-        poolWeights = toNormalizedWeights(
-          Array(numPoolTokens)
-            .fill(fp(1 / numPoolTokens))
-            .map(bn)
-        );
+        vault = await Vault.create();
 
         const params = {
           tokens: poolTokens,
@@ -951,113 +943,362 @@ describe('ManagedPool', function () {
           owner: owner.address,
           poolType: WeightedPoolType.MANAGED_POOL,
           swapEnabledOnStart: true,
-          swapFeePercentage: swapFeePercentage,
-          managementSwapFeePercentage: managementSwapFeePercentage,
           vault,
+          swapFeePercentage,
+          managementSwapFeePercentage,
         };
         pool = await WeightedPool.create(params);
       });
 
       sharedBeforeEach('initialize pool', async () => {
-        await allTokens.mint({ to: [owner], amount: fp(100) });
-        await allTokens.approve({ from: owner, to: vault.address });
-        await allTokens.approve({ from: owner, to: pool.address });
-
+        await poolTokens.mint({ to: owner, amount: fp(10000) });
+        await poolTokens.approve({ from: owner, to: await pool.getVault() });
         await pool.init({ from: owner, initialBalances });
+
+        initialBptBalance = await pool.balanceOf(owner.address);
+      });
+
+      it('collected fees are initially zero', async () => {
+        const totalBpt = await pool.balanceOf(owner.address);
+
+        expect(totalBpt).to.equal(initialBptBalance);
+      });
+
+      describe('set management fee', () => {
+        context('when the sender is not the owner', () => {
+          it('non-owners cannot set the management fee', async () => {
+            await expect(
+              pool.setManagementSwapFeePercentage(other, NEW_MANAGEMENT_SWAP_FEE_PERCENTAGE)
+            ).to.be.revertedWith('SENDER_NOT_ALLOWED');
+          });
+        });
+
+        context('when the sender is the owner', () => {
+          it('the management fee can be set', async () => {
+            await pool.setManagementSwapFeePercentage(owner, NEW_MANAGEMENT_SWAP_FEE_PERCENTAGE);
+            expect(await pool.getManagementSwapFeePercentage()).to.equal(NEW_MANAGEMENT_SWAP_FEE_PERCENTAGE);
+          });
+
+          it('setting the management fee emits an event', async () => {
+            const receipt = await pool.setManagementSwapFeePercentage(owner, NEW_MANAGEMENT_SWAP_FEE_PERCENTAGE);
+
+            expectEvent.inReceipt(await receipt.wait(), 'ManagementFeePercentageChanged', {
+              managementFeePercentage: NEW_MANAGEMENT_SWAP_FEE_PERCENTAGE,
+            });
+          });
+        });
       });
     });
 
-      context('when parameters are invalid', () => {
-        it('when the normalized weight is invalid', async () => {
-          newTokenAddress = addedTokens[0].address;
+    describe('add token', () => {
+      let vault: Vault;
+      let newToken: string;
+      let initialBalances: BigNumber[];
+      let poolTokens: TokenList;
+      const swapFeePercentage = fp(0.02);
+      const managementSwapFeePercentage = fp(0.8);
 
-          const weightTooLow = fp(0.005);
-          const weightTooHigh = fp(1);
+      sharedBeforeEach('deploy Vault', async () => {
+        vault = await Vault.create();
+      });
 
-          await expect(
-            pool.addToken(owner, newTokenAddress, weightTooLow, fp(1), ZERO_ADDRESS, 0, owner.address, other.address)
-          ).to.be.revertedWith('MIN_WEIGHT');
-          await expect(
-            pool.addToken(owner, newTokenAddress, weightTooHigh, fp(1), ZERO_ADDRESS, 0, owner.address, other.address)
-          ).to.be.revertedWith('MAX_WEIGHT');
+      context('max-token pool', () => {
+        sharedBeforeEach('deploy max-token pool', async () => {
+          poolTokens = await TokenList.create(MAX_TOKENS + 1, { sorted: true });
+          newToken = poolTokens.get(MAX_TOKENS).address;
+          initialBalances = Array(MAX_TOKENS).fill(fp(1));
+
+          await poolTokens.mint({ to: [owner], amount: fp(100) });
+          await poolTokens.approve({ from: owner, to: vault.address });
+
+          const params = {
+            tokens: poolTokens.subset(MAX_TOKENS),
+            weights: Array(MAX_TOKENS).fill(fp(1 / MAX_TOKENS)),
+            owner: owner.address,
+            poolType: WeightedPoolType.MANAGED_POOL,
+            swapEnabledOnStart: true,
+            vault,
+          };
+
+          pool = await WeightedPool.create(params);
+          await pool.init({ from: owner, initialBalances });
         });
 
-        it('where there is an ongoing weight change', async () => {
-          const startTime = await currentTimestamp();
-          const endTime = startTime.add(DAY * 3);
-
-          await pool.updateWeightsGradually(owner, startTime, endTime, poolWeights);
-          await advanceTime(DAY);
-
+        it('prevents adding to a max-token pool', async () => {
           await expect(
-            pool.addToken(owner, newTokenAddress, fp(0.1), fp(1), ZERO_ADDRESS, 0, owner.address, other.address)
-          ).to.be.revertedWith('CHANGE_TOKENS_DURING_WEIGHT_CHANGE');
+            pool.addToken(owner, newToken, fp(0.01), fp(1), ZERO_ADDRESS, 0, owner.address, other.address)
+          ).to.be.revertedWith('MAX_TOKENS');
         });
 
-        it('when there is a pending weight change', async () => {
-          const startTime = await currentTimestamp();
-          const endTime = startTime.add(DAY * 3);
-
-          await pool.updateWeightsGradually(owner, startTime.add(DAY), endTime, poolWeights);
-
+        it('reverts if the vault is called directly', async () => {
           await expect(
-            pool.addToken(owner, newTokenAddress, fp(0.1), fp(1), ZERO_ADDRESS, 0, owner.address, other.address)
-          ).to.be.revertedWith('CHANGE_TOKENS_PENDING_WEIGHT_CHANGE');
-        });
+            vault.instance.connect(owner).joinPool(await pool.getPoolId(), owner.address, other.address, {
+              assets: poolTokens.subset(MAX_TOKENS).addresses,
 
-        it('when the incoming weight is too high', async () => {
-          await expect(
-            pool.addToken(owner, newTokenAddress, fp(0.98), fp(1), ZERO_ADDRESS, 0, owner.address, other.address)
-          ).to.be.revertedWith('MIN_WEIGHT');
-        });
-
-        it('when the bptPrice is too low', async () => {
-          await expect(
-            pool.addToken(owner, newTokenAddress, fp(0.1), fp(1), ZERO_ADDRESS, fp(10000), owner.address, other.address)
-          ).to.be.revertedWith('MIN_BPT_PRICE_ADD_TOKEN');
-        });
-
-        it('when the token is already in the pool', async () => {
-          await expect(
-            pool.addToken(
-              owner,
-              poolTokens.get(0).address,
-              fp(0.1),
-              fp(1),
-              ZERO_ADDRESS,
-              0,
-              owner.address,
-              other.address
-            )
-          ).to.be.revertedWith('TOKEN_ALREADY_REGISTERED');
+              maxAmountsIn: new Array(MAX_TOKENS).fill(fp(1000)),
+              userData: ManagedPoolEncoder.joinForAddToken(newToken, fp(100)),
+              toInternalBalance: false,
+            })
+          ).to.be.revertedWith('UNAUTHORIZED_JOIN');
         });
       });
 
-      // Try it once with swaps disabled (don't need to do all permutations)
-      itCanAddAToken(0, fp(0.1), true);
+      describe('3-token pool', () => {
+        const numPoolTokens = 3;
+        const totalTokens = numPoolTokens * 2 + 1;
+        const existingTokens: Token[] = [];
+        const addedTokens: Token[] = [];
 
-      for (let i = 0; i < numPoolTokens + 1; i++) {
-        //for (let w = 0.01; w < 0.7; w += 0.09) {
-        itCanAddAToken(i, fp(0.2), false);
-        //}
-      }
+        let poolWeights: BigNumber[] = [];
+        let newTokenAddress: string;
 
-      context('with an asset manager', () => {
-        it('registers a token with an asset manager', async () => {
-          await pool.addToken(
-            owner,
-            addedTokens[0].address,
-            fp(0.1),
-            fp(1),
-            mockAssetManager.address,
-            0,
-            owner.address,
-            other.address
+        function itCanAddAToken(tokenIndex: number, normalizedWeight: BigNumber, swapsDisabled: boolean): void {
+          describe('when parameters are valid', () => {
+            const expectedWeightsAfter: Map<string, BigNumber> = new Map<string, BigNumber>();
+            const expectedTokensAfter: string[] = [];
+            const tokenAmountIn = fp(1);
+
+            sharedBeforeEach('set swap state', async () => {
+              if (swapsDisabled) {
+                await pool.setSwapEnabled(owner, false);
+              }
+
+              newTokenAddress = addedTokens[tokenIndex].address;
+
+              const weightsBefore = await pool.getNormalizedWeights();
+              const weightSum = await pool.instance.getDenormWeightSum();
+              const { tokens } = await pool.getTokens();
+              const x = fromFp(weightSum).div(fromFp(fp(1).sub(normalizedWeight)));
+              const weightSumAfterAdd = fp(x);
+
+              // Expected tokens are the existing ones plus the one we're adding
+
+              tokens.map((token) => expectedTokensAfter.push(token));
+              expectedTokensAfter.push(newTokenAddress);
+              expectedWeightsAfter.set(newTokenAddress, normalizedWeight); // .mul(weightSumAfterAdd).div(fp(1)
+
+              weightsBefore.map((w, i) =>
+                expectedWeightsAfter.set(tokens[i], fp(fromFp(w).div(fromFp(weightSumAfterAdd))))
+              );
+            });
+
+            it('calculates bptAmountOut', async () => {
+              await pool.instance
+                .connect(owner)
+                .checkAddTokenBptAmount(
+                  addedTokens[tokenIndex].address,
+                  normalizedWeight,
+                  fp(1),
+                  ZERO_ADDRESS,
+                  0,
+                  owner.address,
+                  other.address
+                );
+            });
+
+            context('when token is added', () => {
+              sharedBeforeEach('add token', async () => {
+                const tx = await pool.addToken(
+                  owner,
+                  newTokenAddress,
+                  normalizedWeight,
+                  tokenAmountIn,
+                  ZERO_ADDRESS,
+                  0,
+                  owner.address,
+                  other.address
+                );
+
+                const receipt = await tx.wait();
+
+                expectEvent.inReceipt(receipt, 'TokenAdded', {
+                  token: newTokenAddress,
+                  weight: normalizedWeight,
+                  initialBalance: tokenAmountIn,
+                });
+              });
+
+              it(`adds token at ${tokenIndex} at ${fromFp(normalizedWeight).toFixed(
+                2
+              )}, with swapDisabled=${swapsDisabled}`, async () => {
+                const { assetManager } = await vault.getPoolTokenInfo(await pool.getPoolId(), addedTokens[tokenIndex]);
+
+                // Has no asset manager
+                expect(assetManager).to.equal(ZERO_ADDRESS);
+                expect(await pool.instance.getTotalTokens()).to.equal(numPoolTokens + 1);
+              });
+
+              it('inserts the token', async () => {
+                const { tokens } = await pool.getTokens();
+                expect(tokens).to.have.members(expectedTokensAfter);
+              });
+
+              it('rebalances weights', async () => {
+                const { tokens } = await pool.getTokens();
+                const finalWeights = await pool.getNormalizedWeights();
+
+                tokens.forEach((token, i) => {
+                  const weightAfter = expectedWeightsAfter.get(token) || 0;
+                  expect(finalWeights[i]).to.equalWithError(weightAfter, 0.0000001);
+                });
+              });
+
+              it('transfers initial balance of new token', async () => {
+                const { balances } = await pool.getTokens();
+
+                expect(balances[tokenIndex]).to.equal(tokenAmountIn);
+              });
+            });
+          });
+        }
+
+        sharedBeforeEach('deploy pool', async () => {
+          allTokens = await TokenList.create(totalTokens, { sorted: true, varyDecimals: true });
+          let j = 0;
+          let i;
+
+          for (i = 1; i < totalTokens; i += 2) {
+            existingTokens[j++] = allTokens.get(i);
+          }
+
+          j = 0;
+          for (i = 0; i < totalTokens; i += 2) {
+            addedTokens[j++] = allTokens.get(i);
+          }
+
+          initialBalances = Array(numPoolTokens).fill(fp(1));
+          poolTokens = new TokenList(existingTokens);
+
+          poolWeights = toNormalizedWeights(
+            Array(numPoolTokens)
+              .fill(fp(1 / numPoolTokens))
+              .map(bn)
           );
 
-          const { assetManager } = await vault.getPoolTokenInfo(await pool.getPoolId(), addedTokens[0]);
+          const params = {
+            tokens: poolTokens,
+            weights: poolWeights,
+            owner: owner.address,
+            poolType: WeightedPoolType.MANAGED_POOL,
+            swapEnabledOnStart: true,
+            swapFeePercentage: swapFeePercentage,
+            managementSwapFeePercentage: managementSwapFeePercentage,
+            vault,
+          };
 
-          expect(assetManager).to.equal(mockAssetManager.address);
+          pool = await WeightedPool.create(params);
+        });
+
+        sharedBeforeEach('initialize pool', async () => {
+          await allTokens.mint({ to: [owner], amount: fp(100) });
+          await allTokens.approve({ from: owner, to: vault.address });
+          await allTokens.approve({ from: owner, to: pool.address });
+          await pool.init({ from: owner, initialBalances });
+        });
+
+        context('when parameters are invalid', () => {
+          it('when the normalized weight is invalid', async () => {
+            newTokenAddress = addedTokens[0].address;
+
+            const weightTooLow = fp(0.005);
+            const weightTooHigh = fp(1);
+
+            await expect(
+              pool.addToken(owner, newTokenAddress, weightTooLow, fp(1), ZERO_ADDRESS, 0, owner.address, other.address)
+            ).to.be.revertedWith('MIN_WEIGHT');
+
+            await expect(
+              pool.addToken(owner, newTokenAddress, weightTooHigh, fp(1), ZERO_ADDRESS, 0, owner.address, other.address)
+            ).to.be.revertedWith('MAX_WEIGHT');
+          });
+
+          it('where there is an ongoing weight change', async () => {
+            const startTime = await currentTimestamp();
+            const endTime = startTime.add(DAY * 3);
+
+            await pool.updateWeightsGradually(owner, startTime, endTime, poolWeights);
+            await advanceTime(DAY);
+
+            await expect(
+              pool.addToken(owner, newTokenAddress, fp(0.1), fp(1), ZERO_ADDRESS, 0, owner.address, other.address)
+            ).to.be.revertedWith('CHANGE_TOKENS_DURING_WEIGHT_CHANGE');
+          });
+
+          it('when there is a pending weight change', async () => {
+            const startTime = await currentTimestamp();
+            const endTime = startTime.add(DAY * 3);
+
+            await pool.updateWeightsGradually(owner, startTime.add(DAY), endTime, poolWeights);
+
+            await expect(
+              pool.addToken(owner, newTokenAddress, fp(0.1), fp(1), ZERO_ADDRESS, 0, owner.address, other.address)
+            ).to.be.revertedWith('CHANGE_TOKENS_PENDING_WEIGHT_CHANGE');
+          });
+
+          it('when the incoming weight is too high', async () => {
+            await expect(
+              pool.addToken(owner, newTokenAddress, fp(0.98), fp(1), ZERO_ADDRESS, 0, owner.address, other.address)
+            ).to.be.revertedWith('MIN_WEIGHT');
+          });
+
+          it('when the bptPrice is too low', async () => {
+            await expect(
+              pool.addToken(
+                owner,
+                newTokenAddress,
+                fp(0.1),
+                fp(1),
+                ZERO_ADDRESS,
+                fp(10000),
+                owner.address,
+                other.address
+              )
+            ).to.be.revertedWith('MIN_BPT_PRICE_ADD_TOKEN');
+          });
+
+          it('when the token is already in the pool', async () => {
+            await expect(
+              pool.addToken(
+                owner,
+                poolTokens.get(0).address,
+                fp(0.1),
+                fp(1),
+                ZERO_ADDRESS,
+                0,
+                owner.address,
+                other.address
+              )
+            ).to.be.revertedWith('TOKEN_ALREADY_REGISTERED');
+          });
+        });
+
+        // Try it once with swaps disabled (don't need to do all permutations)
+
+        itCanAddAToken(0, fp(0.1), true);
+
+        for (let i = 0; i < numPoolTokens + 1; i++) {
+          //for (let w = 0.01; w < 0.7; w += 0.09) {
+          itCanAddAToken(i, fp(0.2), false);
+          //}
+        }
+
+        context('with an asset manager', () => {
+          it('registers a token with an asset manager', async () => {
+            await pool.addToken(
+              owner,
+              addedTokens[0].address,
+              fp(0.1),
+              fp(1),
+              mockAssetManager.address,
+              0,
+              owner.address,
+              other.address
+            );
+
+            const { assetManager } = await vault.getPoolTokenInfo(await pool.getPoolId(), addedTokens[0]);
+
+            expect(assetManager).to.equal(mockAssetManager.address);
+          });
         });
       });
     });

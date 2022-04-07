@@ -107,11 +107,4 @@ export class ManagedPoolEncoder {
    */
   static joinForAddToken = (token: string, amountIn: BigNumberish): string =>
     defaultAbiCoder.encode(['uint256', 'uint256', 'uint256'], [WeightedPoolJoinKind.ADD_TOKEN, token, amountIn]);
-
-  /**
-   * Encodes the userData parameter for exiting a ManagedPool for withdrawing management fees.
-   * This can only be done by the pool owner.
-   */
-  static exitForManagementFees = (): string =>
-    defaultAbiCoder.encode(['uint256'], [WeightedPoolExitKind.MANAGEMENT_FEE_TOKENS_OUT]);
 }
