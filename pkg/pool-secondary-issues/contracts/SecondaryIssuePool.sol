@@ -34,7 +34,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
 
     uint256 private constant _INITIAL_BPT_SUPPLY = 2**(112) - 1;
 
-    uint256 private _MAX_TOKEN_BALANCE;
+    uint256 private _MIN_ORDER_SIZE;
     uint256 private immutable _swapFee;
 
     uint256 private immutable _bptIndex;
@@ -63,7 +63,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         string memory symbol,
         address security,
         address currency,
-        uint256 maxSecurityOffered,
+        uint256 minOrderSize,
         uint256 tradeFeePercentage,
         uint256 pauseWindowDuration,
         uint256 bufferPeriodDuration,
@@ -96,8 +96,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         _securityIndex = securityIndex;
         _currencyIndex = currencyIndex;
 
-        // set max total balance of securities
-        _MAX_TOKEN_BALANCE = maxSecurityOffered;
+        _MIN_ORDER_SIZE = minOrderSize;
 
         //swap fee
         _swapFee = tradeFeePercentage;
@@ -106,7 +105,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
 
         _orderbook = new Orderbook(payable(owner), security, currency, address(this));
 
-        emit Offer(security, maxSecurityOffered, currency, address(_orderbook));
+        emit Offer(security, minOrderSize, currency, address(_orderbook));
     }
 
     function getSecurity() external view returns (address) {
@@ -117,8 +116,8 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         return _currency;
     }
 
-    function getSecurityOffered() external view returns (uint256) {
-        return _MAX_TOKEN_BALANCE;
+    function getMinOrderSize() external view returns (uint256) {
+        return _MIN_ORDER_SIZE;
     }
 
     function onSwap(
@@ -175,28 +174,19 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 }
             }
             else{              
-                if(tp!=0){ //we have removed market order from this place, any order where price is indicated is a limit or stop loss order
+                if(tp!=0){ //any order where price is indicated is a limit order
                     params = IOrder.Params({
-                        trade: keccak256(abi.encodePacked(otype))==keccak256(abi.encodePacked("Limit")) ? IOrder.OrderType.Limit : IOrder.OrderType.Stop,
+                        trade: IOrder.OrderType.Limit,
                         price: tp 
                     });                    
                 }
             }                  
-        }else{ //by default, any order without price specified is a market order
-            if (request.tokenIn == IERC20(_currency) || request.tokenOut == IERC20(_security)){
-                //it is a buy (bid), so need the best offer by a counter party
-                params = IOrder.Params({
-                    trade: IOrder.OrderType.Market,
-                    price: 0
-                });
-            }
-            else {
-                //it is a sell (offer), so need the best bid by a counter party
-                params = IOrder.Params({
-                    trade: IOrder.OrderType.Market,
-                    price: 0
-                });
-            }
+        }else{ 
+            //by default, any order without price specified is a market order
+            params = IOrder.Params({
+                trade: IOrder.OrderType.Market,
+                price: 0
+            });
         }
 
         if (request.kind == IVault.SwapKind.GIVEN_IN) 
@@ -204,8 +194,9 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         else if (request.kind == IVault.SwapKind.GIVEN_OUT)
             request.amount = _upscale(request.amount, scalingFactors[indexOut]);        
 
-        if(params.trade != IOrder.OrderType.Stop)
-            emit OrderBook(address(request.tokenIn), address(request.tokenOut), request.amount, params.price);
+        require(request.amount >= _MIN_ORDER_SIZE, "Order below minimum size");
+
+        emit OrderBook(address(request.tokenIn), address(request.tokenOut), request.amount, params.price);
 
         if (request.tokenOut == IERC20(_currency) || request.tokenIn == IERC20(_security)) {
             tp = _orderbook.newOrder(request, params, IOrder.Order.Sell);

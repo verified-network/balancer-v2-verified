@@ -12,6 +12,6 @@ interface ISecondaryIssuePool {
 
     function getCurrency() external view returns (address);
 
-    function getSecurityOffered() external view returns(uint256);
+    function getMinOrderSize() external view returns(uint256);
 }
 
