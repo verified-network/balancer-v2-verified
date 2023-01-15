@@ -164,11 +164,17 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 );
                 _orderbook.removeTrade(request.from, request.amount);
                 if(request.kind == IVault.SwapKind.GIVEN_IN){
+                    if(request.tokenIn==IERC20(_currency)){
+                        IERC20(_currency).safeTransfer(address(getProtocolFeesCollector()), amount.mulDown(_swapFee));
+                    }
                     if (request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
                         return _downscaleDown(amount, scalingFactors[indexOut]);
                     }
                 }
                 else if(request.kind == IVault.SwapKind.GIVEN_OUT) {
+                    if(request.tokenOut==IERC20(_security)){
+                        IERC20(_currency).safeTransfer(address(getProtocolFeesCollector()), amount.mulDown(_swapFee));
+                    }
                     if (request.tokenOut == IERC20(_security) || request.tokenOut == IERC20(_currency)) {
                         return _downscaleDown(amount, scalingFactors[indexIn]);
                     }
@@ -215,6 +221,9 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         }
         if(params.trade == IOrder.OrderType.Market){
             require(tp!=0, "Insufficient liquidity");
+            if (request.tokenOut == IERC20(_security) || request.tokenIn == IERC20(_currency)){
+                IERC20(_currency).safeTransfer(address(getProtocolFeesCollector()), tp.mulDown(_swapFee));
+            }
             return tp;
         }
         
