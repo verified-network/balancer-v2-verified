@@ -53,9 +53,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         uint256 executionDate
     );
 
-    event OrderBook(address tokenIn, address tokenOut, uint256 amountOffered, uint256 priceOffered);
-
-    event Offer(address indexed security, uint256 secondaryOffer, address currency, address orderBook);    
+    event Offer(address indexed security, uint256 minOrderSize, address currency, address orderBook);    
 
     constructor(
         IVault vault,
@@ -138,13 +136,11 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
             require(balances[_securityIndex]>=request.amount, "Insufficient security balance");
         
         uint256[] memory scalingFactors = _scalingFactors();
-        IOrder.Params memory params;
 
         string memory otype;
-        uint256 tp;
 
         if(request.userData.length!=0){
-            (otype, tp) = abi.decode(request.userData, (string, uint256)); 
+            (otype, ) = abi.decode(request.userData, (string, uint256)); 
             if(bytes(otype).length==0){                
                 ITrade.trade memory tradeToReport = _orderbook.getTrade(request.from, request.amount);
                 //ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
@@ -173,42 +169,8 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                     }
                 }
             }
-            else{              
-                if(tp!=0){ //any order where price is indicated is a limit order
-                    params = IOrder.Params({
-                        trade: IOrder.OrderType.Limit,
-                        price: tp 
-                    });                    
-                }
-            }                  
-        }else{ 
-            //by default, any order without price specified is a market order
-            params = IOrder.Params({
-                trade: IOrder.OrderType.Market,
-                price: 0
-            });
-        }
+        }        
 
-        if (request.kind == IVault.SwapKind.GIVEN_IN) 
-            request.amount = _upscale(request.amount, scalingFactors[indexIn]);
-        else if (request.kind == IVault.SwapKind.GIVEN_OUT)
-            request.amount = _upscale(request.amount, scalingFactors[indexOut]);        
-
-        require(request.amount >= _MIN_ORDER_SIZE, "Order below minimum size");
-
-        emit OrderBook(address(request.tokenIn), address(request.tokenOut), request.amount, params.price);
-
-        if (request.tokenOut == IERC20(_currency) || request.tokenIn == IERC20(_security)) {
-            tp = _orderbook.newOrder(request, params, IOrder.Order.Sell);
-        } 
-        else if (request.tokenOut == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
-            tp = _orderbook.newOrder(request, params, IOrder.Order.Buy);
-        }
-        if(params.trade == IOrder.OrderType.Market){
-            require(tp!=0, "Insufficient liquidity");
-            return tp;
-        }
-        
     }
 
     function _onInitializePool(
@@ -277,7 +239,6 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 amountsOut[i] = balances[i];
             }
         }
-
         return (bptAmountIn, amountsOut);
     }
 

@@ -21,10 +21,7 @@ interface IOrder {
         OrderType otype;
         Order order;
         OrderStatus status;
-        uint256 qty;
         address party;
-        uint256 price;  
-        bytes32 ref;  
     }
 
     struct Params {
