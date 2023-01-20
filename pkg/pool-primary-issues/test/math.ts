@@ -21,14 +21,8 @@ export function calcCashOutPerSecurityIn(fpSecurityIn: BigNumber, fpSecurityBala
   const tokensOut = cashBalance.sub(securityBalance.mul(cashBalance.div(postPaidSecurityBalance)));
   const postPaidCurrencyBalance = cashBalance.sub(tokensOut);
   const scaleUp = toFp(postPaidCurrencyBalance.div(postPaidSecurityBalance));
-  console.log("tokensOut",tokensOut);
-  console.log("Check condition",scaleUp);
-  if( fromFp(scaleUp) >= fromFp(minPrice) &&  fromFp(scaleUp) <= fromFp(maxPrice)){
-    return fromFp(tokensOut);
-  }
-  else{
-    return decimal(0);
-  }
+
+  return fromFp(tokensOut);
 }
 
 export function calcSecurityOutPerCashIn(fpCashIn: BigNumber, fpSecurityBalance: BigNumber, fpCashBalance: BigNumber, params: Params): Decimal {
@@ -40,17 +34,11 @@ export function calcSecurityOutPerCashIn(fpCashIn: BigNumber, fpSecurityBalance:
 
   const postPaidCurrencyBalance = cashBalance.add(cashIn.toString());
   let tokensOut = securityBalance.sub(cashBalance.mul(securityBalance.div(postPaidCurrencyBalance)));
-  console.log("tokensOut",tokensOut);
   let postPaidSecurityBalance = securityBalance.sub(tokensOut);
  
   const scaleUp = toFp(postPaidCurrencyBalance.div(postPaidSecurityBalance));
-  console.log("Check condition",scaleUp);
-  if( fromFp(scaleUp) >= fromFp(minPrice) &&  fromFp(scaleUp) <= fromFp(maxPrice)){
-    return fromFp(tokensOut);
-  }
-  else{
-    return decimal(0);
-  }
+
+  return fromFp(tokensOut);
 }
 
 export function calcCashInPerSecurityOut(fpSecurityOut: BigNumber, fpSecurityBalance: BigNumber, fpCashBalance: BigNumber, params: Params): Decimal {
@@ -65,19 +53,8 @@ export function calcCashInPerSecurityOut(fpSecurityOut: BigNumber, fpSecurityBal
   let postPaidCurrencyBalance = cashBalance.add(tokensIn);
 
   const scaleUp = toFp(postPaidCurrencyBalance.div(postPaidSecurityBalance));
-  console.log("tokensIn",tokensIn);
-  console.log("Check condition",scaleUp);
-  if( tokensIn.toString() == "Infinity")
-  {
-    return decimal(1);
-  }
-  else if( fromFp(scaleUp) >= fromFp(minPrice) &&  fromFp(scaleUp) <= fromFp(maxPrice)){
-    return fromFp(tokensIn);
-  }
-  else
-  {
-    return decimal(0);
-  }
+
+  return fromFp(tokensIn);
 }
 
 export function calcSecurityInPerCashOut(fpCashOut: BigNumber, fpSecurityBalance: BigNumber, fpCashBalance: BigNumber, params: Params): Decimal {
@@ -91,18 +68,7 @@ export function calcSecurityInPerCashOut(fpCashOut: BigNumber, fpSecurityBalance
   const tokensIn = (cashBalance.mul(securityBalance.div(postPaidCurrencyBalance))).sub(securityBalance);
   const postPaidSecurityBalance = securityBalance.add(tokensIn);
   const scaleUp = toFp(postPaidCurrencyBalance.div(postPaidSecurityBalance));
-  console.log("tokensIn",tokensIn);
-  console.log("Check condition",scaleUp);
 
-  if( tokensIn.toString() == "Infinity" || cashOut > cashBalance )
-  {
-    return decimal(1);
-  }
-  else if( fromFp(scaleUp) >= fromFp(minPrice) &&  fromFp(scaleUp) <= fromFp(maxPrice)){
-    return fromFp(tokensIn);
-  }
-  else {
-    return decimal(0);
-  }
+  return fromFp(tokensIn);
 }
 

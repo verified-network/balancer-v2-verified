@@ -232,24 +232,15 @@ describe('PrimaryPool', function () {
         );
         console.log("Expected",expected);
 
-        if ( Number(expected) === 0 ){
-          await expect( pool.swapGivenIn({
-            in: pool.securityIndex,
-            out: pool.currencyIndex,
-            amount: amount,
-            balances: currentBalances,
-          })).to.be.revertedWith("Price out of bound");
-        }
-        else{
-          const result = await pool.swapGivenIn({
-            in: pool.securityIndex,
-            out: pool.currencyIndex,
-            amount: amount,
-            balances: currentBalances,
-          });
+        const result = await pool.swapGivenIn({
+          in: pool.securityIndex,
+          out: pool.currencyIndex,
+          amount: amount,
+          balances: currentBalances,
+        });
 
-          expect(Number(fromFp(result))).to.be.equals(Number(expected));
-        }
+        expect(Number(fromFp(result))).to.be.equals(Number(expected));
+
         
       });
 
@@ -289,24 +280,15 @@ describe('PrimaryPool', function () {
           params
         );
         console.log("Expected",expected);
-        if ( Number(expected) === 0 ){
-          await expect( pool.swapGivenIn({
-            in: pool.currencyIndex,
-            out: pool.securityIndex,
-            amount: amount,
-            balances: currentBalances,
-          })).to.be.revertedWith("Price out of bound");
-        }
-        else{
-          const result = await pool.swapGivenIn({
-            in: pool.currencyIndex,
-            out: pool.securityIndex,
-            amount: amount,
-            balances: currentBalances,
-          });
+        const result = await pool.swapGivenIn({
+          in: pool.currencyIndex,
+          out: pool.securityIndex,
+          amount: amount,
+          balances: currentBalances,
+        });
 
-          expect(Number(fromFp(result))).to.be.equals(Number(expected));
-        }
+        expect(Number(fromFp(result))).to.be.equals(Number(expected));
+
       });
 
       context('when paused', () => {
@@ -343,32 +325,15 @@ describe('PrimaryPool', function () {
 
         console.log("Expected",expected);
 
-        if ( Number(expected) === 0 ){
-          await expect( pool.swapGivenOut({
-            in: pool.currencyIndex,
-            out: pool.securityIndex,
-            amount: amount,
-            balances: currentBalances,
-          })).to.be.revertedWith("Price out of bound");
-        }
-        else if ( Number(expected) === 1 ){
-          await expect( pool.swapGivenOut({
-            in: pool.currencyIndex,
-            out: pool.securityIndex,
-            amount: amount,
-            balances: currentBalances,
-          })).to.be.revertedWith("Insufficient balance");
-        }
-        else{
-          const result = await pool.swapGivenOut({
-            in: pool.currencyIndex,
-            out: pool.securityIndex,
-            amount: amount,
-            balances: currentBalances,
-          });
-  
-          expect(Number(fromFp(result))).to.be.equals(Number(expected));
-        }
+        const result = await pool.swapGivenOut({
+          in: pool.currencyIndex,
+          out: pool.securityIndex,
+          amount: amount,
+          balances: currentBalances,
+        });
+
+        expect(Number(fromFp(result))).to.be.equals(Number(expected));
+
       });
 
       context('when paused', () => {
@@ -402,33 +367,14 @@ describe('PrimaryPool', function () {
           currentBalances[pool.currencyIndex],
           params);
         console.log("Expected",expected);
-        if (Number(expected) === 0){
-          await expect( pool.swapGivenOut({
-            in: pool.securityIndex,
-            out: pool.currencyIndex,
-            amount: amount,
-            balances: currentBalances,
-          })).to.be.revertedWith("Price out of bound");
-        }
-        else if(Number(expected) === 1){
-          await expect( pool.swapGivenOut({
-            in: pool.securityIndex,
-            out: pool.currencyIndex,
-            amount: amount,
-            balances: currentBalances,
-          })).to.be.revertedWith("Insufficient balance");
-        }
-        else{
-          const result = await pool.swapGivenOut({
-            in: pool.securityIndex,
-            out: pool.currencyIndex,
-            amount: amount,
-            balances: currentBalances,
-          });
-          expect(Number(fromFp(result))).to.be.equals(Number(expected));
-        }
-
         
+        const result = await pool.swapGivenOut({
+          in: pool.securityIndex,
+          out: pool.currencyIndex,
+          amount: amount,
+          balances: currentBalances,
+        });
+        expect(Number(fromFp(result))).to.be.equals(Number(expected));
       });
 
       context('when paused', () => {
