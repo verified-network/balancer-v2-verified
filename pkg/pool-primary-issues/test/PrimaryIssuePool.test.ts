@@ -29,9 +29,9 @@ describe('PrimaryPool', function () {
   const TOTAL_TOKENS = 3;
   const POOL_SWAP_FEE_PERCENTAGE = fp(0.01);
   
-  const minimumPrice = fp(1);
-  const basePrice = fp(3);
-  const maxSecurityOffered = fp(100);
+  const minimumPrice = fp(8);
+  const basePrice = fp(10);
+  const maxSecurityOffered = fp(5);
   const issueCutoffTime = BigNumber.from("1672444800");
   const SCALING_FACTOR = fp(1);
   const offeringDocs = "0xB45165ED3CD437B9FFAD02A2AAD22A4DDC69162470E2622982889CE5826F6E3D";
@@ -174,7 +174,7 @@ describe('PrimaryPool', function () {
       await deployPool({ securityToken, currencyToken, minimumPrice, basePrice, maxSecurityOffered, issueCutoffTime, offeringDocs }, true);
       await pool.instance.setTotalSupply(MAX_UINT112);
 
-      await setBalances(pool, { securityBalance: fp(100), currencyBalance: fp(0), bptBalance: fp(0) });
+      await setBalances(pool, { securityBalance: fp(5), currencyBalance: fp(30), bptBalance: fp(0) });
       
       const poolId = await pool.getPoolId();
       currentBalances = (await pool.vault.getPoolTokens(poolId)).balances;
@@ -210,7 +210,7 @@ describe('PrimaryPool', function () {
       let bptSupply: BigNumber;
 
       sharedBeforeEach('initialize values ', async () => {
-        amount = fp(30);
+        amount = fp(1);
         bptSupply = MAX_UINT112.sub(currentBalances[pool.bptIndex]);
       });
       
@@ -230,6 +230,7 @@ describe('PrimaryPool', function () {
           currentBalances[pool.currencyIndex],
           params
         );
+        console.log("Expected",expected);
 
         if ( Number(expected) === 0 ){
           await expect( pool.swapGivenIn({
@@ -275,7 +276,7 @@ describe('PrimaryPool', function () {
       let bptSupply: BigNumber;
 
       sharedBeforeEach('initialize values ', async () => {
-        amount = fp(10);
+        amount = fp(1);
         bptSupply = MAX_UINT112.sub(currentBalances[pool.bptIndex]);
       });
       
@@ -287,6 +288,7 @@ describe('PrimaryPool', function () {
           currentBalances[pool.currencyIndex],
           params
         );
+        console.log("Expected",expected);
         if ( Number(expected) === 0 ){
           await expect( pool.swapGivenIn({
             in: pool.currencyIndex,
@@ -329,7 +331,7 @@ describe('PrimaryPool', function () {
       let amount: BigNumber;
 
       sharedBeforeEach('initialize values ', async () => {
-        amount = fp(5);
+        amount = fp(1);
       });
       
       it('calculate currency in', async () => {
@@ -338,7 +340,9 @@ describe('PrimaryPool', function () {
           currentBalances[pool.securityIndex], 
           currentBalances[pool.currencyIndex],
           params);
-      
+
+        console.log("Expected",expected);
+
         if ( Number(expected) === 0 ){
           await expect( pool.swapGivenOut({
             in: pool.currencyIndex,
@@ -389,7 +393,7 @@ describe('PrimaryPool', function () {
       let amount: BigNumber;
 
       sharedBeforeEach('initialize values ', async () => {
-        amount = fp(10);
+        amount = fp(1);
       });
 
       it('calculate security in', async () => {
@@ -397,7 +401,7 @@ describe('PrimaryPool', function () {
           currentBalances[pool.securityIndex], 
           currentBalances[pool.currencyIndex],
           params);
-
+        console.log("Expected",expected);
         if (Number(expected) === 0){
           await expect( pool.swapGivenOut({
             in: pool.securityIndex,
