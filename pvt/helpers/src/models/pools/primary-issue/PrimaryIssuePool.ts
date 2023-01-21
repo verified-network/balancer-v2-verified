@@ -34,7 +34,7 @@ export default class PrimaryPool extends BasePool{
   currencyToken: Token;
   bptToken: Token;
   minimumPrice: BigNumberish;
-  basePrice: BigNumberish;
+  minimumOrderSize: BigNumberish;
   maxSecurityOffered: BigNumberish;
   swapFeePercentage: BigNumberish;
   issueCutoffTime: BigNumberish;
@@ -48,7 +48,7 @@ export default class PrimaryPool extends BasePool{
 
   static async deployedAt(address: Account): Promise<PrimaryPool> {
     const instance = await deployedAt('pool-primary-issues/PrimaryIssuePool', TypesConverter.toAddress(address));
-    const [poolId, vault, securityToken, currencyToken, minimumPrice, basePrice, maxSecurityOffered, swapFee, issueCutoffTime, offeringDocs, owner] = await Promise.all([
+    const [poolId, vault, securityToken, currencyToken, minimumPrice, minimumOrderSize, maxSecurityOffered, swapFee, issueCutoffTime, offeringDocs, owner] = await Promise.all([
       instance.getPoolId(),
       instance.getVault(),
       instance.getSecurity(),
@@ -69,7 +69,7 @@ export default class PrimaryPool extends BasePool{
       await Token.deployedAt(currencyToken),
       await Token.deployedAt(instance.address),
       minimumPrice,
-      basePrice,
+      minimumOrderSize,
       maxSecurityOffered,
       swapFee,
       issueCutoffTime,
@@ -86,7 +86,7 @@ export default class PrimaryPool extends BasePool{
     currencyToken: Token,
     bptToken: Token,
     minimumPrice: BigNumberish,
-    basePrice: BigNumberish,
+    minimumOrderSize: BigNumberish,
     maxSecurityOffered: BigNumberish,
     swapFeePercentage: BigNumberish,
     issueCutoffTime: BigNumberish,
@@ -101,7 +101,7 @@ export default class PrimaryPool extends BasePool{
     this.currencyToken = currencyToken;
     this.bptToken = bptToken;
     this.minimumPrice = minimumPrice;
-    this.basePrice = basePrice;
+    this.minimumOrderSize = minimumOrderSize;
     this.maxSecurityOffered = maxSecurityOffered;
     this.swapFeePercentage = swapFeePercentage;
     this.issueCutoffTime = issueCutoffTime;
@@ -157,8 +157,8 @@ export default class PrimaryPool extends BasePool{
     return this.instance.getMinimumPrice();
   }
 
-  async getbasePrice(): Promise<BigNumber> {
-    return this.instance.getMaximumPrice();
+  async getMinimumOrderSize(): Promise<BigNumber> {
+    return this.instance.getMinimumOrderSize();
   }
 
   async maxsecurityOffered(): Promise<BigNumber> {

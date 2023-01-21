@@ -30,7 +30,7 @@ describe('PrimaryPool', function () {
   const POOL_SWAP_FEE_PERCENTAGE = fp(0.01);
   
   const minimumPrice = fp(8);
-  const basePrice = fp(10);
+  const minimumOrderSize = fp(1);
   const maxSecurityOffered = fp(5);
   const issueCutoffTime = BigNumber.from("1672444800");
   const SCALING_FACTOR = fp(1);
@@ -132,7 +132,7 @@ describe('PrimaryPool', function () {
     let previousBalances: BigNumber[];
 
     sharedBeforeEach('deploy pool', async () => {
-      await deployPool({securityToken, currencyToken, minimumPrice, basePrice, maxSecurityOffered, issueCutoffTime, offeringDocs}, false);
+      await deployPool({securityToken, currencyToken, minimumPrice, minimumOrderSize, maxSecurityOffered, issueCutoffTime, offeringDocs}, false);
       await tokens.approve({ from: owner, to: pool.vault.address, amount: fp(500) });
 
       previousBalances = await pool.getBalances();
@@ -171,7 +171,7 @@ describe('PrimaryPool', function () {
 
     sharedBeforeEach('deploy and initialize pool', async () => {
 
-      await deployPool({ securityToken, currencyToken, minimumPrice, basePrice, maxSecurityOffered, issueCutoffTime, offeringDocs }, true);
+      await deployPool({ securityToken, currencyToken, minimumPrice, minimumOrderSize, maxSecurityOffered, issueCutoffTime, offeringDocs }, true);
       await pool.instance.setTotalSupply(MAX_UINT112);
 
       await setBalances(pool, { securityBalance: fp(5), currencyBalance: fp(30), bptBalance: fp(0) });
@@ -182,7 +182,7 @@ describe('PrimaryPool', function () {
       params = {
         fee: POOL_SWAP_FEE_PERCENTAGE,
         minPrice : minimumPrice,
-        maxPrice : basePrice,
+        minimumOrderSize : minimumOrderSize,
       };
     });
 
@@ -267,12 +267,12 @@ describe('PrimaryPool', function () {
       let bptSupply: BigNumber;
 
       sharedBeforeEach('initialize values ', async () => {
-        amount = fp(1);
+        amount = fp(5);
         bptSupply = MAX_UINT112.sub(currentBalances[pool.bptIndex]);
       });
       
       it('calculate security out', async () => {
-
+        
         const expected = math.calcSecurityOutPerCashIn(
           amount,
           currentBalances[pool.securityIndex],
@@ -399,7 +399,7 @@ describe('PrimaryPool', function () {
   describe('joins and exits', () => {
     let maxAmountsIn : BigNumber[];
     sharedBeforeEach('deploy pool', async () => {
-        await deployPool({securityToken, currencyToken, minimumPrice, basePrice, maxSecurityOffered, issueCutoffTime, offeringDocs }, false);
+        await deployPool({securityToken, currencyToken, minimumPrice, minimumOrderSize, maxSecurityOffered, issueCutoffTime, offeringDocs }, false);
         await tokens.approve({ from: owner, to: pool.vault.address, amount: fp(500) });
 
         maxAmountsIn = new Array(tokens.length);
@@ -466,7 +466,7 @@ describe('PrimaryPool', function () {
     let currentBalances: BigNumber[];
     let maxAmountsIn : BigNumber[];
     sharedBeforeEach('deploy pool', async () => {
-      await deployPool({ securityToken, currencyToken, minimumPrice, basePrice, maxSecurityOffered, issueCutoffTime, offeringDocs }, false);
+      await deployPool({ securityToken, currencyToken, minimumPrice, minimumOrderSize, maxSecurityOffered, issueCutoffTime, offeringDocs }, false);
       await tokens.approve({ from: owner, to: pool.vault.address, amount: fp(500) });
       
       maxAmountsIn = new Array(tokens.length);
@@ -502,7 +502,7 @@ describe('PrimaryPool', function () {
     });
 
     it('checks maximum price', async () => {
-      expect(await pool.getbasePrice()).to.equal(basePrice);
+      expect(await pool.getMinimumOrderSize()).to.equal(minimumOrderSize);
     });
   });
   

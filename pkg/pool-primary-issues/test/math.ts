@@ -6,7 +6,7 @@ import { decimal, fromFp, toFp, scaleDown, fp } from '@balancer-labs/v2-helpers/
 export type Params = {
   fee: BigNumber;
   minPrice: BigNumber;
-  maxPrice: BigNumber;
+  minimumOrderSize: BigNumber;
 };
 
 export function calcCashOutPerSecurityIn(fpSecurityIn: BigNumber, fpSecurityBalance: BigNumber, fpCashBalance: BigNumber, params: Params): Decimal {
@@ -14,7 +14,7 @@ export function calcCashOutPerSecurityIn(fpSecurityIn: BigNumber, fpSecurityBala
   const securityBalance = decimal(fpSecurityBalance);
   const cashBalance = decimal(fpCashBalance);
   const minPrice = decimal(params.minPrice);
-  const maxPrice = decimal(params.maxPrice);
+  const minimumOrderSize = decimal(params.minimumOrderSize);
 
   const postPaidSecurityBalance = securityBalance.add(securityIn.toString());
   
@@ -30,10 +30,12 @@ export function calcSecurityOutPerCashIn(fpCashIn: BigNumber, fpSecurityBalance:
   const securityBalance = decimal(fpSecurityBalance);
   const cashBalance = decimal(fpCashBalance);
   const minPrice = decimal(params.minPrice);
-  const maxPrice = decimal(params.maxPrice);
+  const minimumOrderSize = decimal(params.minimumOrderSize);
 
   const postPaidCurrencyBalance = cashBalance.add(cashIn.toString());
   let tokensOut = securityBalance.sub(cashBalance.mul(securityBalance.div(postPaidCurrencyBalance)));
+  if(fromFp(tokensOut)<minimumOrderSize)
+    tokensOut = minimumOrderSize;
   let postPaidSecurityBalance = securityBalance.sub(tokensOut);
  
   const scaleUp = toFp(postPaidCurrencyBalance.div(postPaidSecurityBalance));
@@ -46,7 +48,7 @@ export function calcCashInPerSecurityOut(fpSecurityOut: BigNumber, fpSecurityBal
   const securityBalance = decimal(fpSecurityBalance);
   const cashBalance = decimal(fpCashBalance);
   const minPrice = decimal(params.minPrice);
-  const maxPrice = decimal(params.maxPrice);
+  const minimumOrderSize = decimal(params.minimumOrderSize);
 
   const postPaidSecurityBalance = securityBalance.sub(securityOut.toString());
   let tokensIn = (securityBalance.mul(cashBalance.div(postPaidSecurityBalance))).sub(cashBalance);
@@ -62,7 +64,7 @@ export function calcSecurityInPerCashOut(fpCashOut: BigNumber, fpSecurityBalance
   const securityBalance = decimal(fpSecurityBalance);
   const cashBalance = decimal(fpCashBalance);
   const minPrice = decimal(params.minPrice);
-  const maxPrice = decimal(params.maxPrice);
+  const minimumOrderSize = decimal(params.minimumOrderSize);
 
   const postPaidCurrencyBalance = cashBalance.sub(cashOut.toString());
   const tokensIn = (cashBalance.mul(securityBalance.div(postPaidCurrencyBalance))).sub(securityBalance);
