@@ -420,8 +420,11 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
     }
 
     function _scalingFactor(IERC20 token) internal view virtual override returns (uint256) {
-        if (token == _security || token == _currency) {
-            return FixedPoint.ONE;
+        if (token == _security){
+            return _scalingFactorSecurity;
+        }
+        else if(token == _currency) {
+            return _scalingFactorCurrency;
         } else {
             _revert(Errors.INVALID_TOKEN);
         }
@@ -431,7 +434,15 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
         uint256 numTokens = _getMaxTokens();
         uint256[] memory scalingFactors = new uint256[](numTokens);
         for(uint256 i = 0; i < numTokens; i++) {
-            scalingFactors[i] = FixedPoint.ONE;
+            if(i==_securityIndex){
+                scalingFactors[i] = _scalingFactorSecurity;
+            }
+            else if(i==_currencyIndex){
+                scalingFactors[i] = _scalingFactorCurrency;
+            }
+            else if(i==_bptIndex){
+                scalingFactors[i] = FixedPoint.ONE;
+            }
         }
         return scalingFactors;
     }
