@@ -58,7 +58,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
 
     event OrderBook(address tokenIn, address tokenOut, uint256 amountOffered, uint256 priceOffered);
 
-    event Offer(address indexed security, uint256 secondaryOffer, address currency, address orderBook);    
+    event Offer(address indexed security, uint256 minOrderSize, address currency, address orderBook);    
 
     constructor(
         IVault vault,
