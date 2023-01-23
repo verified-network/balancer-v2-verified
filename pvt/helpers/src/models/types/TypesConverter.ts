@@ -131,7 +131,7 @@ export default {
   toPrimaryPoolDeployment(params: RawPrimaryPoolDeployment): PrimaryPoolDeployment {
     let {
       minimumPrice,
-      basePrice,
+      minimumOrderSize,
       maxSecurityOffered,
       issueCutoffTime,
       offeringDocs,
@@ -141,7 +141,7 @@ export default {
     } = params;
 
     if (!minimumPrice) minimumPrice = bn(10);
-    if (!basePrice) basePrice = bn(100);
+    if (!minimumOrderSize) minimumOrderSize = bn(100);
     if (!maxSecurityOffered) maxSecurityOffered = bn(1000);
     if (!swapFeePercentage) swapFeePercentage = bn(1e12);
     if (!issueCutoffTime) issueCutoffTime = bn(new Date().getTime() * 2);
@@ -153,7 +153,7 @@ export default {
       securityToken: params.securityToken,
       currencyToken: params.currencyToken,
       minimumPrice,
-      basePrice,
+      minimumOrderSize,
       maxSecurityOffered,
       swapFeePercentage,
       issueCutoffTime,

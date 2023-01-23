@@ -14,6 +14,7 @@ import TokenList from '@balancer-labs/v2-helpers/src/models/tokens/TokenList';
 import SecondaryPool from '@balancer-labs/v2-helpers/src/models/pools/secondary-issue/SecondaryIssuePool';
 import { keccak256 } from "@ethersproject/keccak256";
 import { toUtf8Bytes } from "@ethersproject/strings";
+import Decimal from 'decimal.js';
 
 describe('SecondaryPool', function () {
   let pool: SecondaryPool, tokens: TokenList, securityToken: Token, currencyToken: Token;
@@ -22,7 +23,11 @@ describe('SecondaryPool', function () {
         admin: SignerWithAddress,
         owner: SignerWithAddress,
         other: SignerWithAddress;
-  
+  let tokenUSDC: Token;
+
+  const usdcAmount =(amount: Number)=>{
+    return ethers.utils.parseUnits(amount.toString(), 6);
+  }
   const maxCurrencyOffered = fp(5);
   const maxSecurityOffered = fp(5);
   const TOTAL_TOKENS = 3;
@@ -39,11 +44,15 @@ describe('SecondaryPool', function () {
   });
   
   sharedBeforeEach('deploy tokens', async () => {
-    tokens = await TokenList.create(['DAI', 'CDAI'], { sorted: true });
+    tokenUSDC = await Token.create({name: "USD coin", symbol: 'USDC', decimals: 6 });
+    tokens = await TokenList.create(['DAI', 'CDAI'], {sorted: true});
     await tokens.mint({ to: [owner, lp, trader], amount: fp(500) });
+    await tokenUSDC.mint(owner,usdcAmount(500));
+    await tokenUSDC.mint(lp,usdcAmount(500));
+    await tokenUSDC.mint(trader,usdcAmount(500));
 
     securityToken = tokens.DAI;
-    currencyToken = tokens.CDAI;
+    currencyToken = tokenUSDC;
   });
    
   async function deployPool(params: RawSecondaryPoolDeployment, mockedVault = true): Promise<any> {
@@ -79,15 +88,15 @@ describe('SecondaryPool', function () {
 
       it('registers tokens in the vault', async () => {
         const { tokens, balances } = await pool.getTokens();
-
         expect(tokens).to.have.members(pool.tokens.addresses);
-        // expect(balances).to.be.zeros;
+        expect(balances).to.be.zeros;
       });
 
       it('sets the asset managers', async () => {
-        await tokens.asyncEach(async (token) => {
+        const tokens = [securityToken, currencyToken];
+        await tokens.map(async (token) => {
           const { assetManager } = await pool.getTokenInfo(token);
-          // expect(assetManager).to.be.zeroAddress;
+          expect(assetManager).to.be.zeroAddress;
         });
       });
 
@@ -124,23 +133,26 @@ describe('SecondaryPool', function () {
     sharedBeforeEach('deploy pool', async () => {
       await deployPool({securityToken, currencyToken }, false);
       await tokens.approve({ from: owner, to: pool.vault.address, amount: fp(500) });
+      await tokenUSDC.approve(pool.vault.address,  usdcAmount(500), {from: owner});
+
 
       previousBalances = await pool.getBalances();
 
       maxAmountsIn = new Array(tokens.length);
       maxAmountsIn[pool.securityIndex] = maxSecurityOffered; 
-      maxAmountsIn[pool.currencyIndex] = maxCurrencyOffered;
+      maxAmountsIn[pool.currencyIndex] = usdcAmount(5);
       maxAmountsIn[pool.bptIndex] = fp(0);
 
       await pool.init({ from: owner, recipient: owner.address, initialBalances: maxAmountsIn });
+      const currentBalances = await pool.getBalances();
     });
 
     it('adds bpt to the owner', async () => {
       const currentBalances = await pool.getBalances();
-      expect(currentBalances[pool.bptIndex]).to.be.equal(0);
 
+      expect(currentBalances[pool.bptIndex]).to.be.equal(0);
       expect(currentBalances[pool.securityIndex]).to.be.equal(maxSecurityOffered);
-      expect(currentBalances[pool.currencyIndex]).to.be.equal(maxCurrencyOffered);
+      expect(currentBalances[pool.currencyIndex]).to.be.equal(usdcAmount(5));
 
       const ownerBalance = await pool.balanceOf(owner);
       expect(ownerBalance.toString()).to.be.equal(MAX_UINT112.sub(_DEFAULT_MINIMUM_BPT));
@@ -166,7 +178,7 @@ describe('SecondaryPool', function () {
 
       secondary_pool = await deployPool({ securityToken, currencyToken }, true);
 
-      await setBalances(pool, { securityBalance: fp(500), currencyBalance: fp(500), bptBalance: fp(0) });
+      await setBalances(pool, { securityBalance: fp(500), currencyBalance: usdcAmount(500), bptBalance: fp(0) });
       
       const poolId = await pool.getPoolId();
       currentBalances = (await pool.vault.getPoolTokens(poolId)).balances;
@@ -197,12 +209,11 @@ describe('SecondaryPool', function () {
   const callSwapEvent = async(cpTradesInfo: any, pTradesInfo: any, securityTraded: BigNumber, currencyTraded: BigNumber, counterPartyOrder: string, partyOrder: string, partyOrderType?: string) => {
     //extract details of order
     const counterPartyOrderDetails = await ob.getOrder({from: lp, ref:cpTradesInfo.counterpartyRef});
-    
     // for Counter Party
      const counterPartyTx = {
-      in: counterPartyOrderDetails.tokenIn == "security" ? pool.securityIndex :  pool.currencyIndex,
-      out:  counterPartyOrderDetails.tokenIn != "security" ? pool.securityIndex :  pool.currencyIndex,
-      amount: cpTradesInfo.dt,
+      in: counterPartyOrderDetails.tokenIn == securityToken.address ? pool.securityIndex :  pool.currencyIndex,
+      out:  counterPartyOrderDetails.tokenIn != currencyToken.address ? pool.securityIndex :  pool.currencyIndex,
+      amount: cpTradesInfo.dt.div(maxCurrencyOffered),
       from: counterPartyOrderDetails.party == lp.address ? lp : trader,
       balances: currentBalances,
       data: abiCoder.encode(["string", "uint"], ['', cpTradesInfo.dt]),
@@ -219,9 +230,9 @@ describe('SecondaryPool', function () {
       const partyOrderDetails = await ob.getOrder({from: trader, ref:pTradesInfo.partyRef});
       // for Party  
       const partyDataTx = {
-        in: partyOrderDetails.tokenIn == "security" ? pool.securityIndex :  pool.currencyIndex,
-        out:  partyOrderDetails.tokenIn != "security" ? pool.securityIndex :  pool.currencyIndex,
-        amount: pTradesInfo.dt,
+        in: partyOrderDetails.tokenIn == securityToken.address ? pool.securityIndex :  pool.currencyIndex,
+        out:  partyOrderDetails.tokenIn != currencyToken.address ? pool.securityIndex :  pool.currencyIndex,
+        amount: pTradesInfo.dt.div(maxCurrencyOffered),
         from: partyOrderDetails.party == lp.address ? lp : trader,
         balances: currentBalances,
         data: abiCoder.encode(["string", "uint"], ['', pTradesInfo.dt]),
@@ -291,7 +302,7 @@ describe('SecondaryPool', function () {
         amount: buy_qty,
         balances: currentBalances,
         from: trader,
-        data : ethers.utils.hexlify(ethers.utils.toUtf8Bytes('5Limit' + buy_price.toString())), // LimitOrder Buy 15@210
+        data : abiCoder.encode(["string", "uint"], ['Limit', buy_price]), // LimitOrder Buy 15@210
          
       });
 
@@ -347,17 +358,16 @@ describe('SecondaryPool', function () {
          
       });
 
-      if(buy_qty > sell_qty){
-        await expect( pool.swapGivenIn({
-          in: pool.currencyIndex,
-          out: pool.securityIndex,
-          amount: buy_qty,
-          from: trader,
-          balances: currentBalances,
-          data: abiCoder.encode([], []), // MarketOrder Buy@market price
-           
-        })).to.be.revertedWith('Insufficient liquidity')
-      }
+      await expect( pool.swapGivenIn({
+        in: pool.currencyIndex,
+        out: pool.securityIndex,
+        amount: usdcAmount(500),
+        from: trader,
+        balances: currentBalances,
+        data: abiCoder.encode([], []), // MarketOrder Buy@market price
+          
+      })).to.be.revertedWith('Insufficient liquidity')
+
     });
 
     it('Sell SWAP Out Currency Order > Buy SWAP IN Currency Order', async () => {
@@ -368,30 +378,31 @@ describe('SecondaryPool', function () {
       const sell_order = await pool.swapGivenOut({
         in: pool.securityIndex,
         out: pool.currencyIndex,
-        amount: sell_qty,
+        amount: usdcAmount(400),
         from: lp,
         balances: currentBalances,
         data: abiCoder.encode(["string", "uint"], ['Limit', sell_price]), // Limit Order Sell@price12
          
       });
 
-      if(buy_qty > sell_qty){
-        await expect( pool.swapGivenIn({
-          in: pool.currencyIndex,
-          out: pool.securityIndex,
-          amount: buy_qty,
-          from: trader,
-          balances: currentBalances,
-          data: abiCoder.encode([], []), // MarketOrder Buy@market price
-           
-        })).to.be.revertedWith('Insufficient liquidity')
-      }
+      await expect( pool.swapGivenIn({
+        in: pool.currencyIndex,
+        out: pool.securityIndex,
+        amount: usdcAmount(500),
+        from: trader,
+        balances: currentBalances,
+        data: abiCoder.encode([], []), // MarketOrder Buy@market price
+          
+      })).to.be.revertedWith('Insufficient liquidity');
     });
 
     it('Sell SWAP Out Currency Order > Buy SWAP OUT Security Order', async () => {
-      sell_qty = fp(200);
+      let qtySell = 200;
+      let sellPrice = 20;
+      sell_qty = usdcAmount(qtySell);
+
       buy_qty = fp(20);
-      const securityTraded = divDown(sell_qty,sell_price);
+      const securityTraded = divDown(fp(sell_qty),sell_price);
       const currencyTraded = mulDown(securityTraded,sell_price);
 
       const sell_order = await pool.swapGivenOut({ //Buy Currency or Sell Security
@@ -417,6 +428,7 @@ describe('SecondaryPool', function () {
         })).to.be.revertedWith("Insufficient liquidity");
       }
       else{
+        console.log("Else");
         const buy_order = await pool.swapGivenOut({ //Buy Security or Sell Currency
           in: pool.currencyIndex,
           out: pool.securityIndex,
@@ -442,7 +454,7 @@ describe('SecondaryPool', function () {
       sell_qty = fp(10);
       buy_qty = fp(5);
       const securityTraded = buy_qty;
-      const currencyTraded = mulDown(securityTraded, sell_price);
+      const currencyTraded = usdcAmount(5*20); //buyQty*sellPrice
 
       const sell_order = await pool.swapGivenIn({
         in: pool.securityIndex,
@@ -476,10 +488,12 @@ describe('SecondaryPool', function () {
     });
 
     it('Sell SWAP Out Currency Order > Buy SWAP OUT Security Order2', async () => {
-      sell_qty = fp(400);
-      buy_qty = fp(10);
+      sell_qty = usdcAmount(400);
+      let qty  = 10;
+      buy_qty = fp(qty);
+  
       const securityTraded = buy_qty;
-      const currencyTraded = mulDown(securityTraded,sell_price);
+      const currencyTraded = usdcAmount(10*20);
 
       const sell_order = await pool.swapGivenOut({
         in: pool.securityIndex,
@@ -500,6 +514,7 @@ describe('SecondaryPool', function () {
         data: abiCoder.encode([], []), // MarketOrder Buy@market price
          
       });
+
       expect(buy_order[0].toString()).to.be.equals(currencyTraded.toString()); 
       const counterPartyTrades = await ob.getTrades({from: lp});
       const partyTrades = await ob.getTrades({from: trader});
@@ -515,7 +530,7 @@ describe('SecondaryPool', function () {
       sell_qty = fp(40);
       buy_qty = fp(10);
       const securityTraded = buy_qty;
-      const currencyTraded = mulDown(securityTraded,sell_price);
+      const currencyTraded = usdcAmount(10*20); //buyQty*sellPrice
 
       const sell_order = await pool.swapGivenIn({
         in: pool.securityIndex,
@@ -569,7 +584,7 @@ describe('SecondaryPool', function () {
       const buy_order = await pool.swapGivenIn({
         in: pool.currencyIndex,
         out: pool.securityIndex,
-        amount: buy_qty,
+        amount: usdcAmount(300),
         from: lp,
         balances: currentBalances,
         data: abiCoder.encode(["string", "uint"], ['Limit', buy_price]), // Limit Order Sell@price12
@@ -592,7 +607,7 @@ describe('SecondaryPool', function () {
       const cpTradesInfo = await ob.getTrade({from: lp, tradeId: Number(counterPartyTrades[0]) });
       const pTradesInfo = await ob.getTrade({from: trader, tradeId: Number(partyTrades[0]) });
   
-      await callSwapEvent(cpTradesInfo,pTradesInfo,securityTraded,currencyTraded,"Buy","Sell");
+      await callSwapEvent(cpTradesInfo,pTradesInfo,securityTraded,usdcAmount(300),"Buy","Sell");
     
     });
 
@@ -657,7 +672,7 @@ describe('SecondaryPool', function () {
       await expect(pool.swapGivenIn({
         in: pool.currencyIndex,
         out: pool.securityIndex,
-        amount: buy_qty,
+        amount: usdcAmount(1000),
         from: lp,
         balances: currentBalances,
         data: abiCoder.encode(["string", "uint"], ['Limit', buy_price]), // Limit Order Buy@price 20
@@ -670,17 +685,18 @@ describe('SecondaryPool', function () {
         amount: sell_qty,
         from: trader,
         balances: currentBalances,
-        data: abiCoder.encode(["string", "uint"], ['Stop', sell_price]), // Limit Sell@price 10
+        data: abiCoder.encode(["string", "uint"], ['Limit', sell_price]), // Limit Sell@price 10
          
       })).to.be.revertedWith("Insufficient security balance");
  
     });
 
     it('Buy SWAP Out Security Order > Sell SWAP IN Security Order', async () => {
+      let buyPrice = 20;
       sell_qty = fp(20);
       buy_qty = fp(50);
       const securityTraded = sell_qty;
-      const currencyTraded = mulDown(securityTraded, buy_price);
+      const currencyTraded = usdcAmount(20*20);
   
       const buy_order = await pool.swapGivenOut({
           in: pool.currencyIndex,
@@ -698,13 +714,12 @@ describe('SecondaryPool', function () {
           amount: sell_qty,
           from: trader,
           balances: currentBalances,
-          data: abiCoder.encode(["string", "uint"], ['Stop', sell_price]), // Limit Sell@price 10
+          data: abiCoder.encode(["string", "uint"], ['Limit', sell_price]), // Limit Sell@price 10
            
       });
   
       const counterPartyTrades = await ob.getTrades({from: lp});
       const partyTrades = await ob.getTrades({from: trader});
-
       const cpTradesInfo = await ob.getTrade({from: lp, tradeId: Number(counterPartyTrades[0]) });
       const pTradesInfo = await ob.getTrade({from: trader, tradeId: Number(partyTrades[0]) });
   
@@ -717,10 +732,10 @@ describe('SecondaryPool', function () {
       buy_qty = fp(10);
       sell_price = fp(20);
       buy_price = fp(10);
-      const currencyTraded = buy_qty;
-      const securityTraded = divDown(currencyTraded, sell_price);
+      const currencyTraded = usdcAmount(10);
+      const securityTraded = divDown(buy_qty, sell_price);
      
-      const sell_order = await pool.swapGivenIn({ //Sell Currency
+      const sell_order = await pool.swapGivenIn({ //Sell Security
           in: pool.securityIndex,
           out: pool.currencyIndex,
           amount: sell_qty,
@@ -733,7 +748,7 @@ describe('SecondaryPool', function () {
       const buy_order = await pool.swapGivenIn({ //Buy Security
           in: pool.currencyIndex,
           out: pool.securityIndex,
-          amount: buy_qty,
+          amount: usdcAmount(10),
           from: trader,
           balances: currentBalances,
           data: abiCoder.encode([], []),
@@ -756,8 +771,10 @@ describe('SecondaryPool', function () {
       buy_qty = fp(5);
       buy_price = fp(20);
       sell_price = fp(10);
-      const currencyTraded = mulDown(buy_qty, buy_price);
-      const securityTraded = divDown(currencyTraded,buy_price);
+
+      const currencyTraded = usdcAmount(5*20); // buyQty*buy_price
+      const currency = mulDown(buy_qty,buy_price);
+      const securityTraded = divDown(currency,buy_price);
   
       const buy_order = await pool.swapGivenOut({
         in: pool.currencyIndex,
@@ -772,10 +789,10 @@ describe('SecondaryPool', function () {
       const sell_order = await pool.swapGivenOut({
         in: pool.securityIndex,
         out: pool.currencyIndex,
-        amount: sell_qty,
+        amount: usdcAmount(200),
         from: trader,
         balances: currentBalances,
-        data: abiCoder.encode(["string", "uint"], ['Stop', sell_price]), // Limit Sell@price 10
+        data: abiCoder.encode(["string", "uint"], ['Limit', sell_price]), // Limit Sell@price 10
          
       });
   
@@ -790,19 +807,20 @@ describe('SecondaryPool', function () {
     });
 
     it('Buy SWAP In Currency Order > Sell SWAP Out Currency Order', async () => {
-      sell_qty = fp(50);
-      buy_qty = fp(100);
+      let qty = 50;
+      sell_qty = usdcAmount(qty);
+      buy_qty = usdcAmount(100);
       
       const currencyTraded = sell_qty;
-      const securityTraded = divDown(currencyTraded,buy_price);
+      const securityTraded = divDown(fp(qty),buy_price);
 
       const buy_order = await pool.swapGivenIn({ //BUY Curr[Sell Sec]
         in: pool.currencyIndex,
         out: pool.securityIndex,
-        amount: buy_qty,
+        amount: usdcAmount(100), //buy qty
         from: lp,
         balances: currentBalances,
-        data: abiCoder.encode(["string", "uint"], ['Stop', buy_price]), // Stop Order Buy@price 20
+        data: abiCoder.encode(["string", "uint"], ['Limit', buy_price]), // Stop Order Buy@price 20
          
       });
 
@@ -812,7 +830,7 @@ describe('SecondaryPool', function () {
         amount: sell_qty,
         from: trader,
         balances: currentBalances,
-        data: abiCoder.encode(["string", "uint"], ['Stop', sell_price]), // Stop Sell@price 10
+        data: abiCoder.encode(["string", "uint"], ['Limit', sell_price]), // Stop Sell@price 10
          
       });
   
@@ -830,43 +848,36 @@ describe('SecondaryPool', function () {
     it('Buy SWAP Out Security Order > Sell SWAP Out Currency Order', async () => {
       sell_qty = fp(200);
       buy_qty = fp(100);
-      const currencyTraded = sell_qty;
-      const securityTraded = divDown(currencyTraded,buy_price);
+      const currencyTraded = usdcAmount(200);
+      const securityTraded = divDown(sell_qty,buy_price);
       const buy_order = await pool.swapGivenOut({ //buy security 100
         in: pool.currencyIndex,
         out: pool.securityIndex,
         amount: buy_qty,
         from: lp,
         balances: currentBalances,
-        data: abiCoder.encode(["string", "uint"], ['Stop', buy_price]), // Limit Order Buy@price 20
+        data: abiCoder.encode(["string", "uint"], ['Limit', buy_price]), // Limit Order Buy@price 20
          
       });
   
-      const sell_order = await pool.swapGivenOut({ //buy currency [Sell Sec] 200
+      await expect(pool.swapGivenOut({ //buy currency [Sell Sec] 200
         in: pool.securityIndex,
         out: pool.currencyIndex,
-        amount: sell_qty,
+        amount: usdcAmount(200),
         from: trader,
         balances: currentBalances,
         data: abiCoder.encode([], []), // Market
          
-      });
-      expect(sell_order[0].toString()).to.be.equals(securityTraded.toString()); 
-      const counterPartyTrades = await ob.getTrades({from: lp});
-      const partyTrades = await ob.getTrades({from: trader});
-
-      const cpTradesInfo = await ob.getTrade({from: lp, tradeId: Number(counterPartyTrades[0]) });
-      const pTradesInfo = await ob.getTrade({from: trader, tradeId: Number(partyTrades[0]) });
-  
-      await callSwapEvent(cpTradesInfo,pTradesInfo,securityTraded,currencyTraded,"Buy","Sell","Market");
+      })).to.be.revertedWith("Insufficient liquidity");;
    
     });
   
     it('Buy SWAP IN Currency Order > Sell SWAP Out Security Order', async () => {
-      sell_qty = fp(200);
-      buy_qty = fp(500);
+      let qty = 200;
+      sell_qty = usdcAmount(qty);
+      buy_qty = usdcAmount(500);
       const currencyTraded = sell_qty;
-      const securityTraded = divDown(sell_qty,buy_price);
+      const securityTraded = divDown(fp(qty),buy_price);
   
       const buy_order = await pool.swapGivenIn({
         in: pool.currencyIndex,
@@ -874,7 +885,7 @@ describe('SecondaryPool', function () {
         amount: buy_qty,
         from: lp,
         balances: currentBalances,
-        data: abiCoder.encode(["string", "uint"], ['Stop', buy_price]),
+        data: abiCoder.encode(["string", "uint"], ['Limit', buy_price]),
       });
   
       const sell_order = await pool.swapGivenOut({
@@ -919,7 +930,7 @@ describe('SecondaryPool', function () {
         amount: sell_qty,
         from: lp,
         balances: currentBalances,
-        data: abiCoder.encode(["string", "uint"], ['Stop', sell_price]),
+        data: abiCoder.encode(["string", "uint"], ['Limit', sell_price]),
          
       });
 
@@ -979,37 +990,15 @@ describe('SecondaryPool', function () {
         from: lp
       });
 
-      if(buy_qty > securityTraded)
-      {
-        await expect(pool.swapGivenIn({ 
-          in: pool.currencyIndex,
-          out: pool.securityIndex,
-          amount: buy_qty,
-          from: trader,
-          balances: currentBalances,
-          data: abiCoder.encode([], []), // MarketOrder Buy@market price
-           
-        })).to.be.revertedWith("Insufficient liquidity");
-      }
-      else {
-          const buy_order = await pool.swapGivenIn({
-            in: pool.currencyIndex,
-            out: pool.securityIndex,
-            amount: buy_qty,
-            from: trader,
-            balances: currentBalances,
-            data: abiCoder.encode([], []), // MarketOrder Buy@market price
-             
-          });
-  
-          const counterPartyTrades = await ob.getTrades({from: lp});
-          const partyTrades = await ob.getTrades({from: trader});
-
-          const cpTradesInfo = await ob.getTrade({from: lp, tradeId: Number(counterPartyTrades[0]) });
-          const pTradesInfo = await ob.getTrade({from: trader, tradeId: Number(partyTrades[0]) });
-      
-          await callSwapEvent(cpTradesInfo,pTradesInfo,securityTraded,currencyTraded,"Sell","Buy");
-        }
+      await expect(pool.swapGivenIn({ 
+        in: pool.currencyIndex,
+        out: pool.securityIndex,
+        amount: usdcAmount(500),
+        from: trader,
+        balances: currentBalances,
+        data: abiCoder.encode([], []), // MarketOrder Buy@market price
+          
+      })).to.be.revertedWith("Insufficient liquidity");
     });
   });
 
@@ -1033,37 +1022,37 @@ describe('SecondaryPool', function () {
           if(sell_qty >= buy_qty)
           {
             securityTraded = fp(buy_qty);
-            currencyTraded = mulDown(securityTraded,fp(sell_price));
+            currencyTraded = usdcAmount(buy_qty*sell_price);
           }
           else if(sell_qty < buy_qty)
           { 
             misc = true;
             securityTraded = fp(sell_qty);
-            currencyTraded = mulDown(securityTraded,fp(sell_price));
+            currencyTraded = usdcAmount(sell_qty*sell_price);
           }
         }
         else if (OrderType[sell_RandomOrderType] == "Market"){ //Case: Sell at Market Price
           if(sell_qty >= buy_qty)
           {
             securityTraded = fp(buy_qty);
-            currencyTraded = mulDown(securityTraded,fp(buy_price));
+            currencyTraded = usdcAmount(buy_qty*buy_price);
           }
           else if(sell_qty < buy_qty)
           {
             securityTraded = fp(sell_qty);
-            currencyTraded = mulDown(securityTraded,fp(buy_price));
+            currencyTraded = usdcAmount(sell_qty*buy_price);
           }
         }
         else { 
           if(sell_qty >= buy_qty)
           {
             securityTraded = fp(buy_qty);
-            currencyTraded = mulDown(securityTraded,fp(sell_price)); 
+            currencyTraded = usdcAmount(buy_qty*sell_price);
           }
           else if(sell_qty < buy_qty)
           {
             securityTraded = fp(sell_qty);
-            currencyTraded = mulDown(securityTraded,fp(sell_price));
+            currencyTraded = usdcAmount(sell_qty*sell_price);
           }
         }
 
@@ -1149,10 +1138,11 @@ describe('SecondaryPool', function () {
 
     sharedBeforeEach('initialize values ', async () => {
       buy_qty = fp(10); //qty
-      avgCurrencyTraded = mulDown(fp(1), fp(100))
-      .add(mulDown(fp(2), fp(101))
-      .add(mulDown(fp(3), fp(102))
-      .add(mulDown(fp(4), fp(103)))));
+      // avgCurrencyTraded = mulDown(fp(1), fp(100))
+      // .add(mulDown(fp(2), fp(101))
+      // .add(mulDown(fp(3), fp(102))
+      // .add(mulDown(fp(4), fp(103)))));
+      avgCurrencyTraded = usdcAmount(1*100+2*101+3*102+4*103);
     });
 
     it('Sell 4 orders & 1 Buy Market Order', async () => {
@@ -1197,7 +1187,7 @@ describe('SecondaryPool', function () {
         amount: fp(5),
         from: trader,
         balances: currentBalances,
-        data: abiCoder.encode(["string", "uint"], ['Stop', fp(104)]),
+        data: abiCoder.encode(["string", "uint"], ['Limit', fp(104)]),
          
       });
       const buy_order = await pool.swapGivenOut({ // Buy Security 10@CMP
@@ -1341,11 +1331,13 @@ describe('SecondaryPool', function () {
     let maxAmountsIn : BigNumber[];
     sharedBeforeEach('deploy pool', async () => {
       await deployPool({ securityToken, currencyToken }, false);
+
       await tokens.approve({ from: owner, to: pool.vault.address, amount: fp(500) });
+      await tokenUSDC.approve(pool.vault.address,  usdcAmount(500), {from: owner});
 
         maxAmountsIn = new Array(tokens.length);
         maxAmountsIn[pool.securityIndex] = maxSecurityOffered; 
-        maxAmountsIn[pool.currencyIndex] = maxCurrencyOffered;
+        maxAmountsIn[pool.currencyIndex] = usdcAmount(5);
         maxAmountsIn[pool.bptIndex] = fp(0);
 
         await pool.init({ from: owner, recipient: owner.address, initialBalances: maxAmountsIn });
@@ -1382,7 +1374,7 @@ describe('SecondaryPool', function () {
           const afterExitOwnerBalance = await pool.balanceOf(owner);
           const currentBalances = await pool.getBalances();
           const afterExitSecurityBalance = await securityToken.balanceOf(owner);
-          const afterExitCurrencyBalance = await securityToken.balanceOf(owner);
+          const afterExitCurrencyBalance = await currencyToken.balanceOf(owner);
 
           expect(currentBalances[pool.bptIndex]).to.be.equal(0);
           expect(currentBalances[pool.securityIndex]).to.be.equal(0);
