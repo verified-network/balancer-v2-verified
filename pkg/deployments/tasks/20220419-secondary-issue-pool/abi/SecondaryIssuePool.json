@@ -28,7 +28,7 @@
         },
         {
           "internalType": "uint256",
-          "name": "maxSecurityOffered",
+          "name": "minOrderSize",
           "type": "uint256"
         },
         {
@@ -92,7 +92,7 @@
         {
           "indexed": false,
           "internalType": "uint256",
-          "name": "secondaryOffer",
+          "name": "minOrderSize",
           "type": "uint256"
         },
         {
@@ -458,6 +458,19 @@
       "type": "function"
     },
     {
+      "inputs": [],
+      "name": "getMinOrderSize",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
       "inputs": [
         {
           "internalType": "address",
@@ -559,19 +572,6 @@
           "internalType": "address",
           "name": "",
           "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "getSecurityOffered",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
         }
       ],
       "stateMutability": "view",

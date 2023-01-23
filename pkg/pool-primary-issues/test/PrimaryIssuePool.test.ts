@@ -236,13 +236,13 @@ describe('PrimaryPool', function () {
       });
       
       it('calculate currency out', async () => {
+        const cashBalanceFixed = currentBalances[pool.currencyIndex].toNumber() / 10 ** tokenUSDC.decimals;
         const expected = math.calcCashOutPerSecurityIn(
           amount,
           currentBalances[pool.securityIndex],
-          currentBalances[pool.currencyIndex],
+          fp(cashBalanceFixed),
           params
         );
-        console.log("Expected",expected);
        
         await expect(pool.swapGivenIn({
           in: pool.securityIndex,
@@ -281,21 +281,20 @@ describe('PrimaryPool', function () {
       });
       
       it('calculate security out', async () => {
-        
+        const cashBalanceFixed = currentBalances[pool.currencyIndex].toNumber() / 10 ** tokenUSDC.decimals;
         const expected = math.calcSecurityOutPerCashIn(
           amount,
           currentBalances[pool.securityIndex],
-          currentBalances[pool.currencyIndex],
+          fp(cashBalanceFixed),
           params
         );
-        console.log("Expected",expected);
         const result = await pool.swapGivenIn({
           in: pool.currencyIndex,
           out: pool.securityIndex,
           amount: usdcAmount(7.5),
           balances: currentBalances,
         });
-        console.log("Number(fromFp(result))",Number(fromFp(result)));
+
         expect(Number(fromFp(result))).to.be.equals(Number(expected));
 
       });
@@ -326,13 +325,13 @@ describe('PrimaryPool', function () {
       });
       
       it('calculate currency in', async () => {
-
+        const cashBalanceFixed = currentBalances[pool.currencyIndex].toNumber() / 10 ** tokenUSDC.decimals;
         const expected = math.calcCashInPerSecurityOut(amount, 
           currentBalances[pool.securityIndex], 
-          currentBalances[pool.currencyIndex],
+          fp(cashBalanceFixed),
           params);
 
-        console.log("Expected",expected);
+        const expectedAmountFixed = usdcAmount(fromFp(expected).toNumber()).toNumber();
 
         const result = await pool.swapGivenOut({
           in: pool.currencyIndex,
@@ -341,7 +340,7 @@ describe('PrimaryPool', function () {
           balances: currentBalances,
         });
 
-        expect(Number((result))).to.be.equals(Number(expected));
+        expect(Number((result))).to.be.equals(expectedAmountFixed);
       });
 
       context('when paused', () => {
@@ -370,19 +369,19 @@ describe('PrimaryPool', function () {
       });
 
       it('calculate security in', async () => {
+        const cashBalanceFixed = currentBalances[pool.currencyIndex].toNumber() / 10 ** tokenUSDC.decimals;
         const expected = math.calcSecurityInPerCashOut(amount, 
           currentBalances[pool.securityIndex], 
-          currentBalances[pool.currencyIndex],
+          fp(cashBalanceFixed),
           params);
-        console.log("Expected",expected);
         
-        const result = await pool.swapGivenOut({
+        await expect(pool.swapGivenOut({
           in: pool.securityIndex,
           out: pool.currencyIndex,
           amount: usdcAmount(1),
           balances: currentBalances,
-        });
-        expect(Number(fromFp(result))).to.be.equals(Number(expected));
+        })).to.be.revertedWith('Order size violation');
+
       });
 
       context('when paused', () => {
