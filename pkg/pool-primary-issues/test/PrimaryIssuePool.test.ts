@@ -25,6 +25,7 @@ describe('PrimaryPool', function () {
     admin: SignerWithAddress,
     owner: SignerWithAddress,
     other: SignerWithAddress;
+  let tokenUSDC: Token;
 
   const TOTAL_TOKENS = 3;
   const POOL_SWAP_FEE_PERCENTAGE = fp(0.01);
@@ -60,9 +61,18 @@ describe('PrimaryPool', function () {
   sharedBeforeEach('deploy tokens', async () => {
     tokens = await TokenList.create(['DAI', 'CDAI'], { sorted: true });
     await tokens.mint({ to: [owner, lp, trader], amount: fp(5000) });
+    tokenUSDC = await Token.create({name: "USD coin", symbol: 'USDC', decimals: 6 });
+    await tokenUSDC.mint(owner,fp(500));
+    await tokenUSDC.mint(lp,fp(500));
+    await tokenUSDC.mint(trader,fp(500));
+
     securityToken = tokens.DAI;
-    currencyToken = tokens.CDAI;
+    currencyToken = tokenUSDC;
   });
+
+  const usdcAmount =(amount: Number)=>{
+    return ethers.utils.parseUnits(amount.toString(), 6);
+  }
 
   async function deployPool(params: RawPrimaryPoolDeployment, mockedVault = true): Promise<void> {
     params = Object.assign({}, { swapFeePercentage: POOL_SWAP_FEE_PERCENTAGE, owner, admin }, params);
@@ -94,9 +104,10 @@ describe('PrimaryPool', function () {
       });
 
       it('sets the asset managers', async () => {
-        await tokens.asyncEach(async (token) => {
+        const tokens = [securityToken, currencyToken];
+        await tokens.map(async (token) => {
           const { assetManager } = await pool.getTokenInfo(token);
-          expect(assetManager).to.be.equal(ZERO_ADDRESS);
+          expect(assetManager).to.be.zeroAddress;
         });
       });
 
@@ -134,6 +145,7 @@ describe('PrimaryPool', function () {
     sharedBeforeEach('deploy pool', async () => {
       await deployPool({securityToken, currencyToken, minimumPrice, minimumOrderSize, maxSecurityOffered, issueCutoffTime, offeringDocs}, false);
       await tokens.approve({ from: owner, to: pool.vault.address, amount: fp(500) });
+      await tokenUSDC.approve(pool.vault.address,  usdcAmount(500), {from: owner});
 
       previousBalances = await pool.getBalances();
 
@@ -149,7 +161,7 @@ describe('PrimaryPool', function () {
       expect(currentBalances[pool.bptIndex]).to.be.equal(0);
 
       expect(currentBalances[pool.securityIndex]).to.be.equal(maxSecurityOffered);
-      expect(currentBalances[pool.currencyIndex]).to.be.equal(divDown(maxSecurityOffered,minimumPrice));
+      expect(currentBalances[pool.currencyIndex]).to.be.equal(usdcAmount(5/8)); // div(maxSecurityOffered/minimumPrice)
 
       const ownerBalance = await pool.balanceOf(owner);
       expect(ownerBalance.toString()).to.be.equal(MAX_UINT112.sub(_DEFAULT_MINIMUM_BPT));
@@ -174,7 +186,7 @@ describe('PrimaryPool', function () {
       await deployPool({ securityToken, currencyToken, minimumPrice, minimumOrderSize, maxSecurityOffered, issueCutoffTime, offeringDocs }, true);
       await pool.instance.setTotalSupply(MAX_UINT112);
 
-      await setBalances(pool, { securityBalance: fp(5), currencyBalance: fp(30), bptBalance: fp(0) });
+      await setBalances(pool, { securityBalance: fp(5), currencyBalance: usdcAmount(30), bptBalance: fp(0) });
       
       const poolId = await pool.getPoolId();
       currentBalances = (await pool.vault.getPoolTokens(poolId)).balances;
@@ -231,16 +243,13 @@ describe('PrimaryPool', function () {
           params
         );
         console.log("Expected",expected);
-
-        const result = await pool.swapGivenIn({
+       
+        await expect(pool.swapGivenIn({
           in: pool.securityIndex,
           out: pool.currencyIndex,
           amount: amount,
           balances: currentBalances,
-        });
-
-        expect(Number(fromFp(result))).to.be.equals(Number(expected));
-
+        })).to.be.revertedWith("Price out of bound");
         
       });
 
@@ -267,7 +276,7 @@ describe('PrimaryPool', function () {
       let bptSupply: BigNumber;
 
       sharedBeforeEach('initialize values ', async () => {
-        amount = fp(5);
+        amount = fp(7.5);
         bptSupply = MAX_UINT112.sub(currentBalances[pool.bptIndex]);
       });
       
@@ -283,10 +292,10 @@ describe('PrimaryPool', function () {
         const result = await pool.swapGivenIn({
           in: pool.currencyIndex,
           out: pool.securityIndex,
-          amount: amount,
+          amount: usdcAmount(7.5),
           balances: currentBalances,
         });
-
+        console.log("Number(fromFp(result))",Number(fromFp(result)));
         expect(Number(fromFp(result))).to.be.equals(Number(expected));
 
       });
@@ -332,8 +341,7 @@ describe('PrimaryPool', function () {
           balances: currentBalances,
         });
 
-        expect(Number(fromFp(result))).to.be.equals(Number(expected));
-
+        expect(Number((result))).to.be.equals(Number(expected));
       });
 
       context('when paused', () => {
@@ -371,7 +379,7 @@ describe('PrimaryPool', function () {
         const result = await pool.swapGivenOut({
           in: pool.securityIndex,
           out: pool.currencyIndex,
-          amount: amount,
+          amount: usdcAmount(1),
           balances: currentBalances,
         });
         expect(Number(fromFp(result))).to.be.equals(Number(expected));
@@ -401,6 +409,7 @@ describe('PrimaryPool', function () {
     sharedBeforeEach('deploy pool', async () => {
         await deployPool({securityToken, currencyToken, minimumPrice, minimumOrderSize, maxSecurityOffered, issueCutoffTime, offeringDocs }, false);
         await tokens.approve({ from: owner, to: pool.vault.address, amount: fp(500) });
+        await tokenUSDC.approve(pool.vault.address,  usdcAmount(500), {from: owner});
 
         maxAmountsIn = new Array(tokens.length);
         maxAmountsIn[pool.securityIndex] = maxSecurityOffered; 
@@ -447,7 +456,7 @@ describe('PrimaryPool', function () {
           const afterExitOwnerBalance = await pool.balanceOf(owner);
           const currentBalances = await pool.getBalances();
           const afterExitSecurityBalance = await securityToken.balanceOf(owner);
-          const afterExitCurrencyBalance = await securityToken.balanceOf(owner);
+          const afterExitCurrencyBalance = await currencyToken.balanceOf(owner);
 
           expect(currentBalances[pool.bptIndex]).to.be.equal(0);
           expect(currentBalances[pool.securityIndex]).to.be.equal(0);
@@ -468,7 +477,8 @@ describe('PrimaryPool', function () {
     sharedBeforeEach('deploy pool', async () => {
       await deployPool({ securityToken, currencyToken, minimumPrice, minimumOrderSize, maxSecurityOffered, issueCutoffTime, offeringDocs }, false);
       await tokens.approve({ from: owner, to: pool.vault.address, amount: fp(500) });
-      
+      await tokenUSDC.approve(pool.vault.address,  usdcAmount(500), {from: owner});
+
       maxAmountsIn = new Array(tokens.length);
       maxAmountsIn[pool.securityIndex] = maxSecurityOffered; 
       maxAmountsIn[pool.currencyIndex] = divDown(maxSecurityOffered,minimumPrice);

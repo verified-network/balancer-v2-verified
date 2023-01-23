@@ -22,7 +22,7 @@ import "./utils/BokkyPooBahsDateTimeLibrary.sol";
 
 import "./interfaces/IMarketMaker.sol";
 import "./interfaces/IPrimaryIssuePoolFactory.sol";
-
+import "hardhat/console.sol";
 contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
 
     using PrimaryPoolUserData for bytes;
@@ -180,11 +180,14 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
         require(BokkyPooBahsDateTimeLibrary.addSeconds(_startTime, _cutoffTime) >= block.timestamp, "TimeLimit Over");
         
         uint256[] memory scalingFactors = _scalingFactors();
+         _upscaleArray(balances, scalingFactors);
         Params memory params = Params({ fee: getSwapFeePercentage(), minPrice: _minPrice, minOrderSize: _minOrderSize });
 
         if (request.kind == IVault.SwapKind.GIVEN_IN) {
+            console.log("scalingFactors[indexOut]",scalingFactors[indexOut],scalingFactors[indexIn]);
             request.amount = _upscale(request.amount, scalingFactors[indexIn]);
             uint256 amountOut = _onSwapIn(request, balances, params);
+            console.log("amountOut",amountOut);
             return _downscaleDown(amountOut, scalingFactors[indexOut]);
         } else if (request.kind == IVault.SwapKind.GIVEN_OUT) {
             request.amount = _upscale(request.amount, scalingFactors[indexOut]);
@@ -247,11 +250,12 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
         uint256 securityIndex = _securityIndex;
         uint256 currencyIndex = _currencyIndex;
         uint256 tokenOutAmt;
-        
+
         // returning security for currency paid in at current price of security,
         // but only if new price of security do not go out of price band
         uint256 postPaidCurrencyBalance = Math.add(balances[currencyIndex], request.amount);
         tokenOutAmt = Math.sub(balances[securityIndex], balances[currencyIndex].mulDown(balances[securityIndex].divDown(postPaidCurrencyBalance)));
+        console.log("postPaidCurrencyBalance",postPaidCurrencyBalance,tokenOutAmt);
         if(tokenOutAmt<params.minOrderSize)
             tokenOutAmt = params.minOrderSize;
         uint256 postPaidSecurityBalance = Math.sub(balances[securityIndex], tokenOutAmt);
@@ -332,7 +336,7 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
         uint256 postPaidCurrencyBalance = Math.sub(balances[currencyIndex], request.amount);
         uint256 tokenInAmt = Math.sub(balances[currencyIndex].mulDown(balances[securityIndex].divDown(postPaidCurrencyBalance)), balances[securityIndex]);
         uint256 postPaidSecurityBalance = Math.add(balances[securityIndex], tokenInAmt);
-
+        console.log("postPaidCurrencyBalance",postPaidCurrencyBalance,tokenInAmt,postPaidSecurityBalance);
         require(tokenInAmt >= params.minOrderSize && Math.divDown(tokenInAmt, tokenInAmt)==1, "Order size violation");
         require(postPaidCurrencyBalance.divDown(postPaidSecurityBalance) >= params.minPrice, "Price out of bound");
         //IMarketMaker(_balancerManager).subscribe(getPoolId(), address(_security), address(_security), request.amount, request.from, tokenInAmt, false);

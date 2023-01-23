@@ -21,8 +21,8 @@ export function calcCashOutPerSecurityIn(fpSecurityIn: BigNumber, fpSecurityBala
   const tokensOut = cashBalance.sub(securityBalance.mul(cashBalance.div(postPaidSecurityBalance)));
   const postPaidCurrencyBalance = cashBalance.sub(tokensOut);
   const scaleUp = toFp(postPaidCurrencyBalance.div(postPaidSecurityBalance));
-
-  return fromFp(tokensOut);
+  console.log("fpCashBalance",tokensOut,postPaidCurrencyBalance,scaleUp);
+  return tokensOut;
 }
 
 export function calcSecurityOutPerCashIn(fpCashIn: BigNumber, fpSecurityBalance: BigNumber, fpCashBalance: BigNumber, params: Params): Decimal {
@@ -56,7 +56,7 @@ export function calcCashInPerSecurityOut(fpSecurityOut: BigNumber, fpSecurityBal
 
   const scaleUp = toFp(postPaidCurrencyBalance.div(postPaidSecurityBalance));
 
-  return fromFp(tokensIn);
+  return tokensIn;
 }
 
 export function calcSecurityInPerCashOut(fpCashOut: BigNumber, fpSecurityBalance: BigNumber, fpCashBalance: BigNumber, params: Params): Decimal {

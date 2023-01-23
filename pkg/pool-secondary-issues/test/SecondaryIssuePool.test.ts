@@ -140,7 +140,7 @@ describe('SecondaryPool', function () {
 
       maxAmountsIn = new Array(tokens.length);
       maxAmountsIn[pool.securityIndex] = maxSecurityOffered; 
-      maxAmountsIn[pool.currencyIndex] = maxCurrencyOffered;
+      maxAmountsIn[pool.currencyIndex] = usdcAmount(5);
       maxAmountsIn[pool.bptIndex] = fp(0);
 
       await pool.init({ from: owner, recipient: owner.address, initialBalances: maxAmountsIn });
@@ -151,7 +151,7 @@ describe('SecondaryPool', function () {
       const currentBalances = await pool.getBalances();
 
       expect(currentBalances[pool.bptIndex]).to.be.equal(0);
-
+      console.log('currentBalances[pool.currencyIndex]',currentBalances[pool.currencyIndex].toString());
       expect(currentBalances[pool.securityIndex]).to.be.equal(maxSecurityOffered);
       expect(currentBalances[pool.currencyIndex]).to.be.equal(usdcAmount(5));
 
