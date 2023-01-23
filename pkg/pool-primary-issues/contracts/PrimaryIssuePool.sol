@@ -355,6 +355,7 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
 
         uint256 bptAmountOut = _INITIAL_BPT_SUPPLY;
         uint256[] memory amountsIn = userData.joinKind();
+        amountsIn[_currencyIndex] = _upscale(amountsIn[_currencyIndex], _scalingFactorCurrency);
 
         return (bptAmountOut, amountsIn);
     }

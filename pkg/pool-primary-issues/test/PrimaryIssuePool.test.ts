@@ -60,11 +60,11 @@ describe('PrimaryPool', function () {
 
   sharedBeforeEach('deploy tokens', async () => {
     tokens = await TokenList.create(['DAI', 'CDAI'], { sorted: true });
-    await tokens.mint({ to: [owner, lp, trader], amount: fp(5000) });
+    await tokens.mint({ to: [owner, lp, trader], amount: fp(500) });
     tokenUSDC = await Token.create({name: "USD coin", symbol: 'USDC', decimals: 6 });
-    await tokenUSDC.mint(owner,fp(500));
-    await tokenUSDC.mint(lp,fp(500));
-    await tokenUSDC.mint(trader,fp(500));
+    await tokenUSDC.mint(owner,usdcAmount(500));
+    await tokenUSDC.mint(lp,usdcAmount(500));
+    await tokenUSDC.mint(trader,usdcAmount(500));
 
     securityToken = tokens.DAI;
     currencyToken = tokenUSDC;
@@ -151,7 +151,7 @@ describe('PrimaryPool', function () {
 
       maxAmountsIn = new Array(tokens.length);
       maxAmountsIn[pool.securityIndex] = maxSecurityOffered; 
-      maxAmountsIn[pool.currencyIndex] = divDown(maxSecurityOffered,minimumPrice);
+      maxAmountsIn[pool.currencyIndex] = usdcAmount(5/8);
       maxAmountsIn[pool.bptIndex] = fp(0);
       await pool.init({ from: owner, recipient: owner.address, initialBalances: maxAmountsIn });
     });
@@ -412,7 +412,7 @@ describe('PrimaryPool', function () {
 
         maxAmountsIn = new Array(tokens.length);
         maxAmountsIn[pool.securityIndex] = maxSecurityOffered; 
-        maxAmountsIn[pool.currencyIndex] = divDown(maxSecurityOffered,minimumPrice);
+        maxAmountsIn[pool.currencyIndex] = usdcAmount(5/8);
         maxAmountsIn[pool.bptIndex] = fp(0);
 
         await pool.init({ from: owner, recipient: owner.address, initialBalances: maxAmountsIn });
@@ -480,7 +480,7 @@ describe('PrimaryPool', function () {
 
       maxAmountsIn = new Array(tokens.length);
       maxAmountsIn[pool.securityIndex] = maxSecurityOffered; 
-      maxAmountsIn[pool.currencyIndex] = divDown(maxSecurityOffered,minimumPrice);
+      maxAmountsIn[pool.currencyIndex] = usdcAmount(5/8);
       maxAmountsIn[pool.bptIndex] = fp(0);
 
       await pool.init({ from: owner, recipient: owner.address, initialBalances: maxAmountsIn });

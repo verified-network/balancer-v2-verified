@@ -47,9 +47,9 @@ describe('SecondaryPool', function () {
     tokenUSDC = await Token.create({name: "USD coin", symbol: 'USDC', decimals: 6 });
     tokens = await TokenList.create(['DAI', 'CDAI'], {sorted: true});
     await tokens.mint({ to: [owner, lp, trader], amount: fp(500) });
-    await tokenUSDC.mint(owner,fp(500));
-    await tokenUSDC.mint(lp,fp(500));
-    await tokenUSDC.mint(trader,fp(500));
+    await tokenUSDC.mint(owner,usdcAmount(500));
+    await tokenUSDC.mint(lp,usdcAmount(500));
+    await tokenUSDC.mint(trader,usdcAmount(500));
 
     securityToken = tokens.DAI;
     currencyToken = tokenUSDC;
@@ -140,8 +140,7 @@ describe('SecondaryPool', function () {
 
       maxAmountsIn = new Array(tokens.length);
       maxAmountsIn[pool.securityIndex] = maxSecurityOffered; 
-      maxAmountsIn[pool.currencyIndex] = maxCurrencyOffered;
-      // maxAmountsIn[pool.currencyIndex] = usdcAmount(5);
+      maxAmountsIn[pool.currencyIndex] = usdcAmount(5);
       maxAmountsIn[pool.bptIndex] = fp(0);
 
       await pool.init({ from: owner, recipient: owner.address, initialBalances: maxAmountsIn });
@@ -1338,7 +1337,7 @@ describe('SecondaryPool', function () {
 
         maxAmountsIn = new Array(tokens.length);
         maxAmountsIn[pool.securityIndex] = maxSecurityOffered; 
-        maxAmountsIn[pool.currencyIndex] = maxCurrencyOffered;
+        maxAmountsIn[pool.currencyIndex] = usdcAmount(5);
         maxAmountsIn[pool.bptIndex] = fp(0);
 
         await pool.init({ from: owner, recipient: owner.address, initialBalances: maxAmountsIn });
@@ -1375,7 +1374,7 @@ describe('SecondaryPool', function () {
           const afterExitOwnerBalance = await pool.balanceOf(owner);
           const currentBalances = await pool.getBalances();
           const afterExitSecurityBalance = await securityToken.balanceOf(owner);
-          const afterExitCurrencyBalance = await securityToken.balanceOf(owner);
+          const afterExitCurrencyBalance = await currencyToken.balanceOf(owner);
 
           expect(currentBalances[pool.bptIndex]).to.be.equal(0);
           expect(currentBalances[pool.securityIndex]).to.be.equal(0);
