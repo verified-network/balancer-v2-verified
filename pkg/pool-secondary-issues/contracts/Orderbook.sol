@@ -196,6 +196,7 @@ contract Orderbook is IOrder, ITrade, Ownable{
         }
         //if market depth exists, then fill order at one or more price points in the order book
         for(i=0; i<_marketOrders.length; i++){
+            if (_order.qty == 0) break; //temporary condition to avoid unnesscary looping for consecutive limit orders
             if (
                 _marketOrders[i] != _order.ref && //orders can not be matched with themselves
                 _orders[_marketOrders[i]].party != _order.party && //orders posted by a party can not be matched by a counter offer by the same party

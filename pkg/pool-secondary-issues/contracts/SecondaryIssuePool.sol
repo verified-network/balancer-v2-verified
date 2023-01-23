@@ -140,6 +140,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 request.tokenIn == IERC20(_security), "Invalid swapped tokens");
 
         uint256[] memory scalingFactors = _scalingFactors();
+        _upscaleArray(balances, scalingFactors);
         IOrder.Params memory params;
 
         string memory otype;
@@ -156,9 +157,9 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
             require(balances[_securityIndex]>=request.amount, "Insufficient security balance");
 
         if(request.userData.length!=0){
-            (otype, tp) = abi.decode(request.userData, (string, uint256)); 
-            if(bytes(otype).length==0){                
-                ITrade.trade memory tradeToReport = _orderbook.getTrade(request.from, request.amount);
+            (otype, tp) = abi.decode(request.userData, (string, uint256));  
+            if(bytes(otype).length==0){               
+                ITrade.trade memory tradeToReport = _orderbook.getTrade(request.from, tp);
                 //ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
                 bytes32 tradedInToken = _orderbook.getOrder(tradeToReport.partyAddress == request.from 
                                             ? tradeToReport.partyRef : tradeToReport.counterpartyRef)
@@ -173,7 +174,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                     amount,
                     tradeToReport.dt
                 );
-                _orderbook.removeTrade(request.from, request.amount);
+                _orderbook.removeTrade(request.from, tp);
                 if(request.kind == IVault.SwapKind.GIVEN_IN){
                     if (request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
                         return _downscaleDown(amount, scalingFactors[indexOut]);
@@ -213,11 +214,15 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         }
         if(params.trade == IOrder.OrderType.Market){
             require(tp!=0, "Insufficient liquidity");
-            if (request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
-                return _downscaleDown(tp, scalingFactors[indexOut]);
+            if(request.kind == IVault.SwapKind.GIVEN_IN){
+                if (request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
+                    return _downscaleDown(tp, scalingFactors[indexOut]);
+                }
             }
-            if (request.tokenOut == IERC20(_security) || request.tokenOut == IERC20(_currency)) {
-                return _downscaleDown(tp, scalingFactors[indexIn]);
+            else if(request.kind == IVault.SwapKind.GIVEN_OUT) {
+                if (request.tokenOut == IERC20(_security) || request.tokenOut == IERC20(_currency)) {
+                    return _downscaleDown(tp, scalingFactors[indexIn]);
+                }
             }
         }
         
