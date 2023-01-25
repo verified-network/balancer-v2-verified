@@ -382,7 +382,7 @@ contract Orderbook is IOrder, ITrade, Ownable{
     }   
 
     function getOrder(bytes32 _ref) external view returns(IOrder.order memory){
-        require(msg.sender==owner() || msg.sender==_orders[_ref].party, "Unauthorized access to orders");
+        require(msg.sender==owner() || msg.sender==_balancerManager || msg.sender==_orders[_ref].party, "Unauthorized access to orders");
         return _orders[_ref];
     }
 
@@ -407,7 +407,8 @@ contract Orderbook is IOrder, ITrade, Ownable{
         uint256 _qty,
         Order _order,
         uint256 executionDate
-    ) onlyOwner external override {
+    ) external override {
+        require(msg.sender==_balancerManager || msg.sender==owner(), "Unauthorized access");
         require(_order == Order.Buy || _order == Order.Sell);
         _orders[_orderRef].qty = _orders[_orderRef].qty + _qty;
         _orders[_orderRef].status = OrderStatus.Open;
@@ -435,7 +436,8 @@ contract Orderbook is IOrder, ITrade, Ownable{
         _trades[_orders[_orderRef].party].push(oIndex);
     }
 
-    function orderFilled(bytes32 partyRef, bytes32 counterpartyRef, uint256 executionDate) onlyOwner external override {
+    function orderFilled(bytes32 partyRef, bytes32 counterpartyRef, uint256 executionDate) external override {
+        require(msg.sender==_balancerManager || msg.sender==owner(), "Unauthorized access");
         delete _orders[partyRef];
         delete _orders[counterpartyRef];
         delete _tradeRefs[_orders[partyRef].party][executionDate];
