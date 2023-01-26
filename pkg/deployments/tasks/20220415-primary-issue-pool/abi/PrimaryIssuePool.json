@@ -119,7 +119,7 @@
         {
           "indexed": false,
           "internalType": "uint256",
-          "name": "openingPrice",
+          "name": "minimumOrderSize",
           "type": "uint256"
         },
         {
@@ -1216,5 +1216,4 @@
       "stateMutability": "nonpayable",
       "type": "function"
     }
-]
-  
+]  
