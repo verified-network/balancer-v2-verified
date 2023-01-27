@@ -349,12 +349,28 @@ contract Orderbook is IOrder, ITrade, Ownable{
     function reportTrade(bytes32 _ref, bytes32 _cref, uint256 _price, uint256 securityTraded, uint256 currencyTraded) private {
         _previousTs = _previousTs + 1;
         uint256 oIndex = _previousTs;
+        uint256 partyAmount;
+        uint256 counterpartyAmount;
+        if(_orders[_ref].swapKind==IVault.SwapKind.GIVEN_IN){
+            partyAmount = _orders[_ref].tokenIn==_security ? securityTraded : currencyTraded;
+        }
+        else if(_orders[_ref].swapKind==IVault.SwapKind.GIVEN_OUT){
+            partyAmount =  _orders[_ref].tokenOut==_security ? securityTraded : currencyTraded;
+        }
+        if(_orders[_cref].swapKind==IVault.SwapKind.GIVEN_IN){
+            counterpartyAmount = _orders[_cref].tokenIn==_security ? securityTraded : currencyTraded;
+        }
+        else if(_orders[_cref].swapKind==IVault.SwapKind.GIVEN_OUT){
+            counterpartyAmount =  _orders[_cref].tokenOut==_security ? securityTraded : currencyTraded;
+        }
         ITrade.trade memory tradeToReport = ITrade.trade({
             partyRef: _ref,
-            partyInAmount: _orders[_ref].tokenIn==_security ? securityTraded : currencyTraded,
+            //partyAmount: _orders[_ref].tokenIn==_security ? securityTraded : currencyTraded,
+            partyAmount: partyAmount,
             partyAddress:  _orders[_ref].party,
-            counterpartyRef: _cref,
-            counterpartyInAmount: _orders[_cref].tokenIn==_security ? securityTraded : currencyTraded,
+            counterpartyRef: _cref,            
+            //counterpartyAmount: _orders[_cref].tokenIn==_security ? securityTraded : currencyTraded,
+            counterpartyAmount: counterpartyAmount,
             price: _price,
             dt: oIndex
         });                 
@@ -372,7 +388,7 @@ contract Orderbook is IOrder, ITrade, Ownable{
             oIndex = _trades[_party][i];
             tradeReport = _tradeRefs[_party][oIndex];
             if(tradeReport.partyRef==_ref){
-                uint256 amount = currencyTraded ? tradeReport.counterpartyInAmount : tradeReport.partyInAmount;
+                uint256 amount = currencyTraded ? tradeReport.counterpartyAmount : tradeReport.partyAmount;
                 volume = Math.add(volume, amount);
             }
             delete _trades[_party][i];
@@ -425,10 +441,10 @@ contract Orderbook is IOrder, ITrade, Ownable{
         bytes32 _cref = tradeToRevert.counterpartyRef==_orderRef ? _orderRef : tradeToRevert.counterpartyRef;
         ITrade.trade memory tradeToReport = ITrade.trade({
             partyRef: _ref,
-            partyInAmount: tradeToRevert.partyRef==_orderRef ? tradeToRevert.counterpartyInAmount : tradeToRevert.partyInAmount,
+            partyAmount: tradeToRevert.partyRef==_orderRef ? tradeToRevert.counterpartyAmount : tradeToRevert.partyAmount,
             partyAddress: _orders[_ref].party,
             counterpartyRef: _cref,
-            counterpartyInAmount: tradeToRevert.counterpartyRef==_orderRef ? tradeToRevert.partyInAmount : tradeToRevert.counterpartyInAmount,
+            counterpartyAmount: tradeToRevert.counterpartyRef==_orderRef ? tradeToRevert.partyAmount : tradeToRevert.counterpartyAmount,
             price: tradeToRevert.price,
             dt: oIndex
         });                 

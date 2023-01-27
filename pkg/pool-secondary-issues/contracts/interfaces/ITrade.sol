@@ -10,10 +10,10 @@ interface ITrade {
 
     struct trade{
         bytes32 partyRef;
-        uint256 partyInAmount;
+        uint256 partyAmount;
         address partyAddress;
         bytes32 counterpartyRef;
-        uint256 counterpartyInAmount;
+        uint256 counterpartyAmount;
         uint256 price;
         uint256 dt;
     }

@@ -164,7 +164,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 bytes32 tradedInToken = _orderbook.getOrder(tradeToReport.partyAddress == request.from 
                                             ? tradeToReport.partyRef : tradeToReport.counterpartyRef)
                                             .tokenIn==_security? bytes32("security") : bytes32("currency");
-                uint256 amount = tradeToReport.partyAddress == request.from ? tradeToReport.partyInAmount : tradeToReport.counterpartyInAmount;
+                uint256 amount = tradeToReport.partyAddress == request.from ? tradeToReport.partyAmount : tradeToReport.counterpartyAmount;
                 emit TradeReport(
                     _security,
                     tradedInToken==bytes32("security") ? _orderbook.getOrder(tradeToReport.partyRef).party : _orderbook.getOrder(tradeToReport.counterpartyRef).party,
