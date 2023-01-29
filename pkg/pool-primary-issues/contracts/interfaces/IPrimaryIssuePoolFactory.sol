@@ -14,7 +14,7 @@ interface IPrimaryIssuePoolFactory {
         address security;
         address currency;
         uint256 minimumPrice;
-        uint256 basePrice;
+        uint256 minimumOrderSize;
         uint256 maxAmountsIn;
         uint256 swapFeePercentage;
         uint256 cutOffTime;

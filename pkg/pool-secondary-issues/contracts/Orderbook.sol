@@ -136,12 +136,28 @@ contract Orderbook is IOrder, ITrade, Ownable{
     function reportTrade(bytes32 _ref, bytes32 _cref, uint256 _price, uint256 securityTraded, uint256 currencyTraded) public {
         _previousTs = _previousTs + 1;
         uint256 oIndex = _previousTs;
+        uint256 partyAmount;
+        uint256 counterpartyAmount;
+        if(_orders[_ref].tokenIn==_security && _orders[_ref].swapKind==IVault.SwapKind.GIVEN_IN ||
+            _orders[_ref].tokenOut==_currency && _orders[_ref].swapKind==IVault.SwapKind.GIVEN_OUT
+        ){
+            partyAmount = securityTraded;
+            counterpartyAmount = currencyTraded;
+        }
+        else if(_orders[_ref].tokenIn==_currency && _orders[_ref].swapKind==IVault.SwapKind.GIVEN_IN ||
+            _orders[_ref].tokenOut==_security && _orders[_ref].swapKind==IVault.SwapKind.GIVEN_OUT
+        ){
+            partyAmount =  currencyTraded;
+            counterpartyAmount = securityTraded;
+        }
         ITrade.trade memory tradeToReport = ITrade.trade({
             partyRef: _ref,
-            partyInAmount: _orders[_ref].tokenIn==_security ? securityTraded : currencyTraded,
+            //partyAmount: _orders[_ref].tokenIn==_security ? securityTraded : currencyTraded,
+            partyAmount: partyAmount,
             partyAddress:  _orders[_ref].party,
             counterpartyRef: _cref,
-            counterpartyInAmount: _orders[_cref].tokenIn==_security ? securityTraded : currencyTraded,
+            //counterpartyAmount: _orders[_cref].tokenIn==_security ? securityTraded : currencyTraded,
+            counterpartyAmount: counterpartyAmount,
             price: _price,
             dt: oIndex
         });                 
@@ -152,7 +168,7 @@ contract Orderbook is IOrder, ITrade, Ownable{
     }
 
     function getOrder(bytes32 _ref) external view returns(IOrder.order memory){
-        require(msg.sender==owner() || msg.sender==_orders[_ref].party, "Unauthorized access to orders");
+        require(msg.sender==owner() || msg.sender==_balancerManager || msg.sender==_orders[_ref].party, "Unauthorized access to orders");
         return _orders[_ref];
     }
 
@@ -177,7 +193,8 @@ contract Orderbook is IOrder, ITrade, Ownable{
         uint256 _qty,
         Order _order,
         uint256 executionDate
-    ) onlyOwner external override {
+    ) external override {
+        require(msg.sender==_balancerManager || msg.sender==owner(), "Unauthorized access");
         require(_order == Order.Buy || _order == Order.Sell);
         _orders[_orderRef].status = OrderStatus.Open;
         //push to order book
@@ -190,10 +207,10 @@ contract Orderbook is IOrder, ITrade, Ownable{
         bytes32 _cref = tradeToRevert.counterpartyRef==_orderRef ? _orderRef : tradeToRevert.counterpartyRef;
         ITrade.trade memory tradeToReport = ITrade.trade({
             partyRef: _ref,
-            partyInAmount: tradeToRevert.partyRef==_orderRef ? tradeToRevert.counterpartyInAmount : tradeToRevert.partyInAmount,
+            partyAmount: tradeToRevert.partyRef==_orderRef ? tradeToRevert.counterpartyAmount : tradeToRevert.partyAmount,
             partyAddress: _orders[_ref].party,
             counterpartyRef: _cref,
-            counterpartyInAmount: tradeToRevert.counterpartyRef==_orderRef ? tradeToRevert.partyInAmount : tradeToRevert.counterpartyInAmount,
+            counterpartyAmount: tradeToRevert.counterpartyRef==_orderRef ? tradeToRevert.partyAmount : tradeToRevert.counterpartyAmount,
             price: tradeToRevert.price,
             dt: oIndex
         });                 
@@ -206,7 +223,8 @@ contract Orderbook is IOrder, ITrade, Ownable{
                         o.order==IOrder.Order.Buy ? true : false, _qty, tradeToRevert.price);
     }
 
-    function orderFilled(bytes32 partyRef, bytes32 counterpartyRef, uint256 executionDate) onlyOwner external override {
+    function orderFilled(bytes32 partyRef, bytes32 counterpartyRef, uint256 executionDate) external override {
+        require(msg.sender==_balancerManager || msg.sender==owner(), "Unauthorized access");
         delete _orders[partyRef];
         delete _orders[counterpartyRef];
         delete _tradeRefs[_orders[partyRef].party][executionDate];

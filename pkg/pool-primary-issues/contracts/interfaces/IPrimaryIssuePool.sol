@@ -13,7 +13,7 @@ interface IPrimaryIssuePool {
 
     function getMinimumPrice() external view returns(uint256);
 
-    function getMaximumPrice() external view returns(uint256);
+    function getMinimumOrderSize() external view returns(uint256);
 
     function getSecurityOffered() external view returns(uint256);
 
