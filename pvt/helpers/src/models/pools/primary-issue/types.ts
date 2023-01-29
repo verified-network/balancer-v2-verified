@@ -11,7 +11,7 @@ export type RawPrimaryPoolDeployment = {
   securityToken: Token;
   currencyToken: Token;
   minimumPrice?: BigNumber;
-  basePrice?: BigNumber;
+  minimumOrderSize?: BigNumber;
   maxSecurityOffered?: BigNumber;
   swapFeePercentage?: BigNumberish;
   issueCutoffTime?: BigNumberish;
@@ -28,7 +28,7 @@ export type PrimaryPoolDeployment = {
   securityToken: Token;
   currencyToken: Token;
   minimumPrice: BigNumber;
-  basePrice: BigNumber;
+  minimumOrderSize: BigNumber;
   maxSecurityOffered: BigNumber;
   swapFeePercentage: BigNumberish;
   issueCutoffTime: BigNumberish;
