@@ -351,17 +351,17 @@ contract Orderbook is IOrder, ITrade, Ownable{
         uint256 oIndex = _previousTs;
         uint256 partyAmount;
         uint256 counterpartyAmount;
-        if(_orders[_ref].swapKind==IVault.SwapKind.GIVEN_IN){
-            partyAmount = _orders[_ref].tokenIn==_security ? securityTraded : currencyTraded;
+        if(_orders[_ref].tokenIn==_security && _orders[_ref].swapKind==IVault.SwapKind.GIVEN_IN ||
+            _orders[_ref].tokenOut==_currency && _orders[_ref].swapKind==IVault.SwapKind.GIVEN_OUT
+        ){
+            partyAmount = securityTraded;
+            counterpartyAmount = currencyTraded;
         }
-        else if(_orders[_ref].swapKind==IVault.SwapKind.GIVEN_OUT){
-            partyAmount =  _orders[_ref].tokenOut==_security ? securityTraded : currencyTraded;
-        }
-        if(_orders[_cref].swapKind==IVault.SwapKind.GIVEN_IN){
-            counterpartyAmount = _orders[_cref].tokenIn==_security ? securityTraded : currencyTraded;
-        }
-        else if(_orders[_cref].swapKind==IVault.SwapKind.GIVEN_OUT){
-            counterpartyAmount =  _orders[_cref].tokenOut==_security ? securityTraded : currencyTraded;
+        else if(_orders[_ref].tokenIn==_currency && _orders[_ref].swapKind==IVault.SwapKind.GIVEN_IN ||
+            _orders[_ref].tokenOut==_security && _orders[_ref].swapKind==IVault.SwapKind.GIVEN_OUT
+        ){
+            partyAmount =  currencyTraded;
+            counterpartyAmount = securityTraded;
         }
         ITrade.trade memory tradeToReport = ITrade.trade({
             partyRef: _ref,
