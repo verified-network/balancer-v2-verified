@@ -228,6 +228,60 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         
     }
 
+    function onLimit(
+        SwapRequest memory request,
+        uint256[] memory balances,
+        uint256 indexIn,
+        uint256 indexOut
+    ) public whenNotPaused returns (uint256) {
+        require (request.kind == IVault.SwapKind.GIVEN_IN || request.kind == IVault.SwapKind.GIVEN_OUT, "Invalid swap");
+        require(request.tokenOut == IERC20(_currency) ||
+                request.tokenOut == IERC20(_security) ||
+                request.tokenIn == IERC20(_currency) ||
+                request.tokenIn == IERC20(_security), "Invalid swapped tokens");
+
+        uint256[] memory scalingFactors = _scalingFactors();
+        _upscaleArray(balances, scalingFactors);
+        IOrder.Params memory params;
+
+        string memory otype;
+        uint256 tp;
+
+        if (request.kind == IVault.SwapKind.GIVEN_IN) 
+            request.amount = _upscale(request.amount, scalingFactors[indexIn]);
+        else if (request.kind == IVault.SwapKind.GIVEN_OUT)
+            request.amount = _upscale(request.amount, scalingFactors[indexOut]);
+
+        if(request.tokenIn==IERC20(_currency) && request.kind==IVault.SwapKind.GIVEN_IN)
+            require(balances[_currencyIndex]>=request.amount, "Insufficient currency balance");
+        else if(request.tokenIn==IERC20(_security) && request.kind==IVault.SwapKind.GIVEN_IN)
+            require(balances[_securityIndex]>=request.amount, "Insufficient security balance");
+
+        if(request.userData.length!=0){
+            (otype, tp) = abi.decode(request.userData, (string, uint256));  
+            if(bytes(otype).length!=0){               
+                if(tp!=0){ //any order where price is indicated is a limit order
+                    params = IOrder.Params({
+                        trade: IOrder.OrderType.Limit,
+                        price: tp 
+                    });                    
+                }
+            }                  
+        }              
+
+        require(request.amount >= _MIN_ORDER_SIZE, "Order below minimum size");
+
+        emit OrderBook(address(request.tokenIn), address(request.tokenOut), request.amount, params.price);
+
+        if (request.tokenOut == IERC20(_currency) || request.tokenIn == IERC20(_security)) {
+            tp = _orderbook.newOrder(request, params, IOrder.Order.Sell);
+        } 
+        else if (request.tokenOut == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
+            tp = _orderbook.newOrder(request, params, IOrder.Order.Buy);
+        }
+        
+    }
+
     function _onInitializePool(
         bytes32,
         address sender,
