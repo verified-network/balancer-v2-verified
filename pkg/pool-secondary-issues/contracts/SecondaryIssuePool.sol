@@ -45,6 +45,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
     uint256 private immutable _currencyIndex;
 
     address payable immutable private _balancerManager;
+    IVault _vault;
     
     event TradeReport(
         address indexed security,
@@ -88,7 +89,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         // set tokens
         _security = security;
         _currency = currency;
-
+        _vault = vault;
         // Set token indexes
         (uint256 securityIndex, uint256 currencyIndex, uint256 bptIndex) = _getSortedTokenIndexes(
             IERC20(security),
@@ -164,7 +165,17 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 bytes32 tradedInToken = _orderbook.getOrder(tradeToReport.partyAddress == request.from 
                                             ? tradeToReport.partyRef : tradeToReport.counterpartyRef)
                                             .tokenIn==_security? bytes32("security") : bytes32("currency");
-                uint256 amount = tradeToReport.partyAddress == request.from ? tradeToReport.partyAmount : tradeToReport.counterpartyAmount;
+                uint256 amount;
+                if(request.tokenIn==IERC20(_security) && request.kind==IVault.SwapKind.GIVEN_IN ||
+                    request.tokenOut==IERC20(_security) && request.kind==IVault.SwapKind.GIVEN_OUT
+                ){
+                    amount = tradeToReport.currencyTraded;
+                }
+                else if(request.tokenIn==IERC20(_currency) && request.kind==IVault.SwapKind.GIVEN_IN ||
+                    request.tokenOut==IERC20(_currency) && request.kind==IVault.SwapKind.GIVEN_OUT
+                ){
+                    amount = tradeToReport.securityTraded;
+                }
                 emit TradeReport(
                     _security,
                     tradedInToken==bytes32("security") ? _orderbook.getOrder(tradeToReport.partyRef).party : _orderbook.getOrder(tradeToReport.counterpartyRef).party,
@@ -229,11 +240,24 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
     }
 
     function onLimit(
-        SwapRequest memory request,
-        uint256[] memory balances,
+        IVault.SwapKind kind,
+        bytes32 poolId,
+        uint256 amount,
+        bytes memory data,
         uint256 indexIn,
         uint256 indexOut
     ) public whenNotPaused returns (uint256) {
+        (, uint256[] memory balances,) = IVault(_vault).getPoolTokens(poolId);
+        IERC20 tokenIn = indexIn == _securityIndex ? IERC20(_security) : IERC20(_currency);
+        IERC20 tokenOut = indexOut == _securityIndex ? IERC20(_security) : IERC20(_currency);
+        SwapRequest memory request;
+        request.kind = kind;
+        request.tokenIn = tokenIn;
+        request.tokenOut = tokenOut;
+        request.amount = amount;
+        request.userData = data;
+        request.from = msg.sender;
+
         require (request.kind == IVault.SwapKind.GIVEN_IN || request.kind == IVault.SwapKind.GIVEN_OUT, "Invalid swap");
         require(request.tokenOut == IERC20(_currency) ||
                 request.tokenOut == IERC20(_security) ||
