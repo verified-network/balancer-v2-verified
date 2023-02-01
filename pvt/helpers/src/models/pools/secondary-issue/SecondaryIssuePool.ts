@@ -17,7 +17,8 @@ import {
   InitPrimaryPool, 
   JoinResult,
   ExitGivenOutPrimaryPool,
-  ExitResult  
+  ExitResult,  
+  LimitOrderSecondaryPool,
 } from './types';
 
 import Vault from '../../vault/Vault';
@@ -213,6 +214,21 @@ export default class SecondaryPool extends BasePool{
 
   async swapGivenOut(params: SwapSecondaryPool): Promise<any> {
     return this.swap(this._buildSwapParams(SwapKind.GivenOut, params), params.eventHash!);
+  }
+
+  async placeLimitOrder(params: LimitOrderSecondaryPool): Promise<any> {
+    const sender = params.from || this.owner;
+    const pool = sender ? this.instance.connect(sender) : this.instance;
+    const tx = await pool.onLimit(
+                            params.kind, 
+                            this.poolId, 
+                            params.amount, 
+                            params.data, 
+                            params.in, 
+                            params.out
+                          );
+    const receipt = await (await tx).wait();
+    console.log("GAS USED",receipt.gasUsed.toString());
   }
 
   async swap(params: GeneralSwap, eventEncoded: string): Promise<any> {

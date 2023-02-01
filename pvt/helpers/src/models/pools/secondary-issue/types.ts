@@ -6,6 +6,7 @@ import { BigNumberish } from '../../../numbers';
 
 import Vault from '../../vault/Vault';
 import Token from '../../tokens/Token';
+import { SwapKind } from '@balancer-labs/balancer-js';
 
 export type RawSecondaryPoolDeployment = {
   securityToken: Token;
@@ -80,4 +81,13 @@ export type ExitGivenOutPrimaryPool = {
   lastChangeBlock?: BigNumberish;
   currentBalances?: BigNumberish[];
   protocolFeePercentage?: BigNumberish;
+};
+
+export type LimitOrderSecondaryPool = {
+  in: number;
+  out: number;
+  kind: SwapKind;
+  amount: BigNumberish;
+  from?: SignerWithAddress;
+  data?: string;
 };
