@@ -29,3 +29,11 @@ export type OrderBookRef = {
   from?: SignerWithAddress;
   ref?: string;
 };
+
+export type RevertTrade = {
+  from?: SignerWithAddress;
+  orderRef: string;
+  qty: BigNumberish;
+  orderType : Number;
+  executionDate: BigNumberish; 
+};
