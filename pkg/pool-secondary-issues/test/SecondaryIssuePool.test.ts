@@ -231,8 +231,7 @@ describe('SecondaryPool', function () {
   }
   const callSwapEvent = async(cpTradesInfo: any, pTradesInfo: any, counterPartyAmountExpected: BigNumber, partyAmountExpected: BigNumber, partyOrderType?: string) => {
     //extract details of order
-    const counterPartyOrderDetails = await ob.getOrder({from: lp, ref:cpTradesInfo.counterpartyRef});
-    // console.log("counterPartyOrderDetails",counterPartyOrderDetails);
+    let counterPartyOrderDetails = await ob.getOrder({from: lp, ref:cpTradesInfo.counterpartyRef});
     const cPAmount = getAmount(counterPartyOrderDetails,cpTradesInfo);
     // for Counter Party
      const counterPartyTx = {
@@ -264,7 +263,14 @@ describe('SecondaryPool', function () {
       const partyAmount = partyOrderDetails.swapKind == 0 ?  await pool.swapGivenIn(partyDataTx) :  await pool.swapGivenOut(partyDataTx);
       // console.log("partyAmountExpected",partyAmountExpected.toString());
       expect(partyAmount[0].toString()).to.be.equals(partyAmountExpected.toString()); 
-    }     
+    }  
+    // const revertTrade = await ob.revertTrade({
+    //   from: lp, 
+    //   orderRef:cpTradesInfo.counterpartyRef, 
+    //   qty: counterPartyOrderDetails.qty,
+    //   orderType: counterPartyOrderDetails.order,
+    //   executionDate: cpTradesInfo.dt 
+    // });
   } 
   
   context('Placing Market order', () => {
@@ -517,7 +523,6 @@ describe('SecondaryPool', function () {
 
       const cpTradesInfo = await ob.getTrade({from: lp, tradeId: Number(counterPartyTrades[0]) });
       const pTradesInfo = await ob.getTrade({from: trader, tradeId: Number(partyTrades[0]) });
-  
       await callSwapEvent(cpTradesInfo,pTradesInfo,counterPartyAmountExpected,partyAmountExpected,"Market");
     });
 
@@ -588,14 +593,13 @@ describe('SecondaryPool', function () {
         in: pool.securityIndex,
         out: pool.currencyIndex,
         kind: SwapKind.GivenIn,
-        amount: sell_qty,
+        amount: fp(20),
         from: trader,
         data : abiCoder.encode(["string", "uint"], ['Limit', sell_price]),
       });
 
       const counterPartyTrades = await ob.getTrades({from: lp});
       const partyTrades = await ob.getTrades({from: trader});
-
       const cpTradesInfo = await ob.getTrade({from: lp, tradeId: Number(counterPartyTrades[0]) });
       const pTradesInfo = await ob.getTrade({from: trader, tradeId: Number(partyTrades[0]) });
 

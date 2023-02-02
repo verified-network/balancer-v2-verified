@@ -344,6 +344,27 @@ contract Orderbook is IOrder, ITrade, Ownable{
             }
         }
         delete _marketOrders;
+        removeOrderBookZeros();
+    }
+    
+    function removeOrderBookZeros() private {
+        uint nonZeroCount = 0;
+        for (uint i = 0; i < _orderbook.length; i++) {
+            if (_orderbook[i] != 0) {
+                nonZeroCount++;
+            }
+        }
+        if (nonZeroCount == 0) return;
+        bytes32[] memory tempArray = new bytes32[](nonZeroCount);
+        uint newIndex = 0;
+        for (uint i = 0; i < _orderbook.length; i++) {
+            if (_orderbook[i] != 0) {
+                _orderIndex[_orderbook[i]] = newIndex;  // updating order Index
+                tempArray[newIndex] = _orderbook[i];
+                newIndex++;
+            }
+        }
+        _orderbook = tempArray;
     }
 
     function reportTrade(bytes32 _ref, bytes32 _cref, uint256 _price, uint256 securityTraded, uint256 currencyTraded) private {
@@ -422,7 +443,7 @@ contract Orderbook is IOrder, ITrade, Ownable{
         //reverse trade
         uint256 oIndex = executionDate + 1;
         ITrade.trade memory tradeToRevert = _tradeRefs[_orders[_orderRef].party][executionDate];
-        bytes32 _ref = tradeToRevert.partyRef==_orderRef ? tradeToRevert.counterpartyRef : _orderRef;
+        bytes32 _ref = tradeToRevert.partyRef==_orderRef ? _orderRef : tradeToRevert.partyRef;
         bytes32 _cref = tradeToRevert.counterpartyRef==_orderRef ? _orderRef : tradeToRevert.counterpartyRef;
         ITrade.trade memory tradeToReport = ITrade.trade({
             partyRef: _ref,
