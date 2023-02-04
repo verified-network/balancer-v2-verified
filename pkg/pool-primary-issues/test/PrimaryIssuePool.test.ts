@@ -30,7 +30,7 @@ describe('PrimaryPool', function () {
   const TOTAL_TOKENS = 3;
   const POOL_SWAP_FEE_PERCENTAGE = fp(0.01);
   
-  const minimumPrice = fp(8);
+  const minimumPrice = fp(6);
   const minimumOrderSize = fp(1);
   const maxSecurityOffered = fp(5);
   const issueCutoffTime = BigNumber.from("1672444800");

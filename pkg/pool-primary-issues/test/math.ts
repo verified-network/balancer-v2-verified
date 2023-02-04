@@ -20,7 +20,6 @@ export function calcCashOutPerSecurityIn(fpSecurityIn: BigNumber, fpSecurityBala
   
   const tokensOut = cashBalance.sub(securityBalance.mul(cashBalance.div(postPaidSecurityBalance)));
   const postPaidCurrencyBalance = cashBalance.sub(tokensOut);
-  const scaleUp = toFp(postPaidCurrencyBalance.div(postPaidSecurityBalance));
   
   return tokensOut;
 }
@@ -34,12 +33,7 @@ export function calcSecurityOutPerCashIn(fpCashIn: BigNumber, fpSecurityBalance:
 
   const postPaidCurrencyBalance = cashBalance.add(cashIn.toString());
   let tokensOut = securityBalance.sub(cashBalance.mul(securityBalance.div(postPaidCurrencyBalance)));
-  if(tokensOut<minimumOrderSize)
-    tokensOut = minimumOrderSize;
-
   let postPaidSecurityBalance = securityBalance.sub(tokensOut);
- 
-  const scaleUp = toFp(postPaidCurrencyBalance.div(postPaidSecurityBalance));
 
   return fromFp(tokensOut);
 }
@@ -55,8 +49,6 @@ export function calcCashInPerSecurityOut(fpSecurityOut: BigNumber, fpSecurityBal
   let tokensIn = (securityBalance.mul(cashBalance.div(postPaidSecurityBalance))).sub(cashBalance);
   let postPaidCurrencyBalance = cashBalance.add(tokensIn);
 
-  const scaleUp = toFp(postPaidCurrencyBalance.div(postPaidSecurityBalance));
-
   return tokensIn;
 }
 
@@ -70,7 +62,6 @@ export function calcSecurityInPerCashOut(fpCashOut: BigNumber, fpSecurityBalance
   const postPaidCurrencyBalance = cashBalance.sub(cashOut.toString());
   const tokensIn = (cashBalance.mul(securityBalance.div(postPaidCurrencyBalance))).sub(securityBalance);
   const postPaidSecurityBalance = securityBalance.add(tokensIn);
-  const scaleUp = toFp(postPaidCurrencyBalance.div(postPaidSecurityBalance));
 
   return fromFp(tokensIn);
 }
