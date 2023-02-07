@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { BigNumber, BigNumberish } from 'ethers';
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/dist/src/signer-with-address';
 
-import { bn, decimal, fp, fromFp,scaleDown,scaleUp } from '@balancer-labs/v2-helpers/src/numbers';
+import { bn, decimal, fp, fromFp,toFp,scaleDown,scaleUp } from '@balancer-labs/v2-helpers/src/numbers';
 import { advanceTime } from '@balancer-labs/v2-helpers/src/time';
 import { MAX_UINT112, MAX_UINT96 } from '@balancer-labs/v2-helpers/src/constants';
 import * as expectEvent from '@balancer-labs/v2-helpers/src/test/expectEvent';
@@ -30,7 +30,7 @@ describe('PrimaryPool', function () {
   const TOTAL_TOKENS = 3;
   const POOL_SWAP_FEE_PERCENTAGE = fp(0.01);
   
-  const minimumPrice = fp(6);
+  const minimumPrice = fp(8);
   const minimumOrderSize = fp(1);
   const maxSecurityOffered = fp(5);
   const issueCutoffTime = BigNumber.from("1672444800");
@@ -237,20 +237,21 @@ describe('PrimaryPool', function () {
       
       it('calculate currency out', async () => {
         const cashBalanceFixed = currentBalances[pool.currencyIndex].toNumber() / 10 ** tokenUSDC.decimals;
-        const expected = math.calcCashOutPerSecurityIn(
+        let expected = math.calcCashOutPerSecurityIn(
           amount,
           currentBalances[pool.securityIndex],
           fp(cashBalanceFixed),
           params
         );
-       
-        await expect(pool.swapGivenIn({
+        let cashOut = (Number(expected)* 10 ** tokenUSDC.decimals);
+
+        const result = await pool.swapGivenIn({
           in: pool.securityIndex,
           out: pool.currencyIndex,
           amount: amount,
           balances: currentBalances,
-        })).to.be.revertedWith("Price out of bound");
-        
+        });
+        expect(Number((result))).to.be.equals(cashOut);
       });
 
       context('when paused', () => {
@@ -276,7 +277,7 @@ describe('PrimaryPool', function () {
       let bptSupply: BigNumber;
 
       sharedBeforeEach('initialize values ', async () => {
-        amount = fp(7.5);
+        amount = fp(20);
         bptSupply = MAX_UINT112.sub(currentBalances[pool.bptIndex]);
       });
       
@@ -291,11 +292,11 @@ describe('PrimaryPool', function () {
         const result = await pool.swapGivenIn({
           in: pool.currencyIndex,
           out: pool.securityIndex,
-          amount: usdcAmount(7.5),
+          amount: usdcAmount(20),
           balances: currentBalances,
         });
 
-        expect(Number(fromFp(result))).to.be.equals(Number(expected));
+        expect(Number((result))).to.be.equals(Number(expected));
 
       });
 
@@ -332,7 +333,6 @@ describe('PrimaryPool', function () {
           params);
 
         const expectedAmountFixed = usdcAmount(fromFp(expected).toNumber()).toNumber();
-
         const result = await pool.swapGivenOut({
           in: pool.currencyIndex,
           out: pool.securityIndex,
@@ -365,7 +365,7 @@ describe('PrimaryPool', function () {
       let amount: BigNumber;
 
       sharedBeforeEach('initialize values ', async () => {
-        amount = fp(1);
+        amount = fp(10);
       });
 
       it('calculate security in', async () => {
@@ -374,11 +374,10 @@ describe('PrimaryPool', function () {
           currentBalances[pool.securityIndex], 
           fp(cashBalanceFixed),
           params);
-        
         await expect(pool.swapGivenOut({
           in: pool.securityIndex,
           out: pool.currencyIndex,
-          amount: usdcAmount(1),
+          amount: usdcAmount(10),
           balances: currentBalances,
         })).to.be.revertedWith('Order size violation');
 

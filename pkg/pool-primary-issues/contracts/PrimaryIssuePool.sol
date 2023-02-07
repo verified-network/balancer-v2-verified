@@ -223,13 +223,10 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
         // returning currency for current price of security paid in,
         // but only if new price of security do not go out of price band
         uint256 postPaidSecurityBalance = Math.add(balances[_securityIndex], request.amount);
-        uint256 tokenOutAmt = Math.divDown(postPaidSecurityBalance, balances[_securityIndex]).mulDown(request.amount.mulDown(params.minPrice));
-        require(Math.sub(balances[_currencyIndex], tokenOutAmt) < 0, "Price out of bound");
+        uint256 tokenOutAmt = (postPaidSecurityBalance.divDown(balances[_securityIndex])).mulDown(request.amount.mulDown(params.minPrice));
 
-        /*uint256 tokenOutAmt = Math.sub(balances[_currencyIndex], balances[_securityIndex].mulDown(balances[_currencyIndex].divDown(postPaidSecurityBalance)));
-        require (tokenOutAmt.divDown(request.amount) >= params.minPrice, "Price out of bound");*/
-
-        require (balances[_currencyIndex] > tokenOutAmt, "Insufficient currency balance");
+        require (tokenOutAmt.divDown(request.amount) >= params.minPrice, "Price out of bound");
+        require (balances[_currencyIndex] >= tokenOutAmt, "Insufficient currency balance");
         // IMarketMaker(_balancerManager).subscribe(getPoolId(), address(_security), address(_currency), tokenOutAmt, request.from, tokenOutAmt.divDown(request.amount), false);
         emit Subscription(address(_security), address(_currency), tokenOutAmt, request.from, tokenOutAmt.divDown(request.amount), block.timestamp);
         return tokenOutAmt;        
@@ -245,11 +242,10 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
         // returning security for currency paid in at current price of security,
         // but only if new price of security do not go out of price band
         uint256 postPaidCurrencyBalance = Math.add(balances[_currencyIndex], request.amount);
-        uint256 tokenOutAmt = Math.divDown(request.amount, params.minPrice).divDown(Math.divDown(postPaidCurrencyBalance, balances[_currencyIndex]));
-        //uint256 tokenOutAmt = Math.sub(balances[_securityIndex], balances[_currencyIndex].mulDown(balances[_securityIndex].divDown(postPaidCurrencyBalance)));
+        uint256 tokenOutAmt = (request.amount.divDown(params.minPrice)).divDown(postPaidCurrencyBalance.divDown(balances[_currencyIndex]));
         
-        require(request.amount.divDown(tokenOutAmt) >= params.minPrice, "Price out of bound");
         require(tokenOutAmt >= params.minOrderSize, "Order size violation");
+        require(request.amount.divDown(tokenOutAmt) >= params.minPrice, "Price out of bound");
         require(balances[_securityIndex] >= tokenOutAmt, "Insufficient security balance");
         // IMarketMaker(_balancerManager).subscribe(getPoolId(), address(_security), address(_currency), request.amount, request.from, request.amount.divDown(tokenOutAmt), true);
         emit Subscription(address(_currency), address(_security), request.amount, request.from, request.amount.divDown(tokenOutAmt), block.timestamp);
@@ -277,20 +273,14 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
         Params memory params
     ) internal returns (uint256) {
         _require(request.tokenIn == _currency, Errors.INVALID_TOKEN);
-        require(request.amount <= balances[_securityIndex], "Insufficient balance");
+        require(request.amount < balances[_securityIndex], "Insufficient balance");
         require(request.amount >= params.minOrderSize, "Order size violation");
 
         //returning currency to be paid in for paid out security
         uint256 postPaidSecurityBalance = Math.sub(balances[_securityIndex], request.amount);
-        require(postPaidSecurityBalance <= 0, "Price out of bound");
-        uint256 tokenInAmt = Math.divDown(balances[_securityIndex], postPaidSecurityBalance).mulDown(request.amount.mulDown(params.minPrice));
-        
-        /*if(postPaidSecurityBalance!=0)
-            tokenInAmt = Math.sub(balances[_securityIndex].mulDown(balances[_currencyIndex].divDown(postPaidSecurityBalance)), balances[_currencyIndex]);
-        else
-            tokenInAmt = request.amount.mulDown(balances[_currencyIndex]);        
-        
-        require (tokenInAmt.divDown(request.amount) >= params.minPrice, "Price out of bound");*/
+        uint256 tokenInAmt = (balances[_securityIndex].divDown(postPaidSecurityBalance)).mulDown(request.amount.mulDown(params.minPrice));
+
+        require (tokenInAmt.divDown(request.amount) >= params.minPrice, "Price out of bound");
         // IMarketMaker(_balancerManager).subscribe(getPoolId(), address(_security), address(_currency), tokenInAmt, request.from, tokenInAmt.divDown(request.amount), true);
         emit Subscription(address(_currency), address(_security), tokenInAmt, request.from, tokenInAmt.divDown(request.amount), block.timestamp);
         return tokenInAmt;
@@ -302,13 +292,12 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
         Params memory params
     ) internal returns (uint256) {
         _require(request.tokenIn == _security, Errors.INVALID_TOKEN);
-        require(balances[_securityIndex]>0, "Issue sold out");
-        require(request.amount <= balances[_currencyIndex], "Insufficient balance");
+        require(balances[_securityIndex]>0, "Issue sold out"); // Why this condition ?
+        require(request.amount < balances[_currencyIndex], "Insufficient balance");
 
         //returning security to be paid in for currency paid out
         uint256 postPaidCurrencyBalance = Math.sub(balances[_currencyIndex], request.amount);
-        uint256 tokenInAmt = Math.divDown(request.amount, params.minPrice).divDown(Math.divDown(balances[_currencyIndex], postPaidCurrencyBalance));
-        //uint256 tokenInAmt = Math.sub(balances[_currencyIndex].mulDown(balances[_securityIndex].divDown(postPaidCurrencyBalance)), balances[_securityIndex]);
+        uint256 tokenInAmt = (request.amount.divDown(params.minPrice)).divDown(balances[_currencyIndex].divDown(postPaidCurrencyBalance));
 
         require(tokenInAmt >= params.minOrderSize, "Order size violation");
         require(request.amount.divDown(tokenInAmt) >= params.minPrice, "Price out of bound");
