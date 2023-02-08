@@ -51,6 +51,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         address indexed security,
         address party,
         address counterparty,
+        bytes32 orderType,
         uint256 price,
         address currency,
         uint256 amount,
@@ -146,6 +147,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
 
         string memory otype;
         uint256 tp;
+        bytes32 orderType;
 
         if (request.kind == IVault.SwapKind.GIVEN_IN) 
             request.amount = _upscale(request.amount, scalingFactors[indexIn]);
@@ -161,7 +163,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
             (otype, tp) = abi.decode(request.userData, (string, uint256));  
             if(bytes(otype).length==0){               
                 ITrade.trade memory tradeToReport = _orderbook.getTrade(request.from, tp);
-                //ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
+                ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
                 bytes32 tradedInToken = _orderbook.getOrder(tradeToReport.partyAddress == request.from 
                                             ? tradeToReport.partyRef : tradeToReport.counterpartyRef)
                                             .tokenIn==_security? bytes32("security") : bytes32("currency");
@@ -176,10 +178,17 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 ){
                     amount = tradeToReport.securityTraded;
                 }
+                if (request.tokenOut == IERC20(_currency) || request.tokenIn == IERC20(_security)) {
+                    orderType = "Sell";
+                } 
+                else if (request.tokenOut == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
+                    orderType = "Buy";
+                }
                 emit TradeReport(
                     _security,
                     tradedInToken==bytes32("security") ? _orderbook.getOrder(tradeToReport.partyRef).party : _orderbook.getOrder(tradeToReport.counterpartyRef).party,
                     tradedInToken==bytes32("currency") ? _orderbook.getOrder(tradeToReport.partyRef).party : _orderbook.getOrder(tradeToReport.counterpartyRef).party,
+                    orderType,
                     tradeToReport.price,
                     _currency,
                     amount,

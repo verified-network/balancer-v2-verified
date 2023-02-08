@@ -63,7 +63,7 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
         //uint256 iOut;
     }
 
-    event OpenIssue(address indexed security, uint256 minimumOrderSize, address currency, uint256 securityOffered, uint256 cutoffTime, string offeringDocs);
+    event OpenIssue(address indexed security, uint256 minimumOrderSize, uint256 minimumPrice, address currency, uint256 securityOffered, uint256 cutoffTime, string offeringDocs);
     event Subscription(address indexed assetIn, address assetOut, uint256 amount, address investor, uint256 price, uint256 executionDate);
 
     constructor(
@@ -126,6 +126,7 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
 
         emit OpenIssue(factoryPoolParams.security, 
                         factoryPoolParams.minimumOrderSize, 
+                        factoryPoolParams.minimumPrice,
                         factoryPoolParams.currency, 
                         factoryPoolParams.maxAmountsIn, 
                         factoryPoolParams.cutOffTime, 
@@ -227,7 +228,7 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
 
         require (tokenOutAmt.divDown(request.amount) >= params.minPrice, "Price out of bound");
         require (balances[_currencyIndex] >= tokenOutAmt, "Insufficient currency balance");
-        // IMarketMaker(_balancerManager).subscribe(getPoolId(), address(_security), address(_currency), tokenOutAmt, request.from, tokenOutAmt.divDown(request.amount), false);
+        IMarketMaker(_balancerManager).subscribe(getPoolId(), address(_security), address(_currency), tokenOutAmt, request.from, tokenOutAmt.divDown(request.amount), false);
         emit Subscription(address(_security), address(_currency), tokenOutAmt, request.from, tokenOutAmt.divDown(request.amount), block.timestamp);
         return tokenOutAmt;        
     }
@@ -247,7 +248,7 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
         require(tokenOutAmt >= params.minOrderSize, "Order size violation");
         require(request.amount.divDown(tokenOutAmt) >= params.minPrice, "Price out of bound");
         require(balances[_securityIndex] >= tokenOutAmt, "Insufficient security balance");
-        // IMarketMaker(_balancerManager).subscribe(getPoolId(), address(_security), address(_currency), request.amount, request.from, request.amount.divDown(tokenOutAmt), true);
+        IMarketMaker(_balancerManager).subscribe(getPoolId(), address(_security), address(_currency), request.amount, request.from, request.amount.divDown(tokenOutAmt), true);
         emit Subscription(address(_currency), address(_security), request.amount, request.from, request.amount.divDown(tokenOutAmt), block.timestamp);
         return tokenOutAmt;
     }
@@ -281,7 +282,7 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
         uint256 tokenInAmt = (balances[_securityIndex].divDown(postPaidSecurityBalance)).mulDown(request.amount.mulDown(params.minPrice));
 
         require (tokenInAmt.divDown(request.amount) >= params.minPrice, "Price out of bound");
-        // IMarketMaker(_balancerManager).subscribe(getPoolId(), address(_security), address(_currency), tokenInAmt, request.from, tokenInAmt.divDown(request.amount), true);
+        IMarketMaker(_balancerManager).subscribe(getPoolId(), address(_security), address(_currency), tokenInAmt, request.from, tokenInAmt.divDown(request.amount), true);
         emit Subscription(address(_currency), address(_security), tokenInAmt, request.from, tokenInAmt.divDown(request.amount), block.timestamp);
         return tokenInAmt;
     }
@@ -301,7 +302,7 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
 
         require(tokenInAmt >= params.minOrderSize, "Order size violation");
         require(request.amount.divDown(tokenInAmt) >= params.minPrice, "Price out of bound");
-        // IMarketMaker(_balancerManager).subscribe(getPoolId(), address(_security), address(_currency), request.amount, request.from, request.amount.divDown(tokenInAmt), false);
+        IMarketMaker(_balancerManager).subscribe(getPoolId(), address(_security), address(_currency), request.amount, request.from, request.amount.divDown(tokenInAmt), false);
         emit Subscription(address(_security), address(_currency), request.amount, request.from, request.amount.divDown(tokenInAmt), block.timestamp);
         return tokenInAmt;
     }
