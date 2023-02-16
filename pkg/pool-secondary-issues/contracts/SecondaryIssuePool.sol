@@ -60,7 +60,9 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
 
     event OrderBook(address tokenIn, address tokenOut, uint256 amountOffered, uint256 priceOffered);
 
-    event Offer(address indexed security, uint256 minOrderSize, address currency, address orderBook);    
+    event Offer(address indexed security, uint256 minOrderSize, address currency, address orderBook);  
+
+    event LimitOrders(bytes32 indexed ref);  
 
     constructor(
         IVault vault,
@@ -114,7 +116,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
 
         _orderbook = new Orderbook(payable(owner), security, currency, address(this));
 
-        emit Offer(security, minOrderSize, currency, address(_orderbook));
+        emit Offer(security, _MIN_ORDER_SIZE, currency, address(_orderbook));
     }
 
     function getSecurity() external view returns (address) {
@@ -147,7 +149,8 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
 
         string memory otype;
         uint256 tp;
-        bytes32 orderType;
+        bytes32 tradedInToken;
+        uint256 amount;        
 
         if (request.kind == IVault.SwapKind.GIVEN_IN) 
             request.amount = _upscale(request.amount, scalingFactors[indexIn]);
@@ -163,11 +166,9 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
             (otype, tp) = abi.decode(request.userData, (string, uint256));  
             if(bytes(otype).length==0){               
                 ITrade.trade memory tradeToReport = _orderbook.getTrade(request.from, tp);
-                ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
-                bytes32 tradedInToken = _orderbook.getOrder(tradeToReport.partyAddress == request.from 
+                tradedInToken = _orderbook.getOrder(tradeToReport.partyAddress == request.from 
                                             ? tradeToReport.partyRef : tradeToReport.counterpartyRef)
-                                            .tokenIn==_security? bytes32("security") : bytes32("currency");
-                uint256 amount;
+                                            .tokenIn==_security? bytes32("security") : bytes32("currency");                
                 if(request.tokenIn==IERC20(_security) && request.kind==IVault.SwapKind.GIVEN_IN ||
                     request.tokenOut==IERC20(_security) && request.kind==IVault.SwapKind.GIVEN_OUT
                 ){
@@ -178,12 +179,16 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 ){
                     amount = tradeToReport.securityTraded;
                 }
+                bytes32 orderType;
                 if (request.tokenOut == IERC20(_currency) || request.tokenIn == IERC20(_security)) {
                     orderType = "Sell";
                 } 
                 else if (request.tokenOut == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
                     orderType = "Buy";
                 }
+                tradeToReport.securityTraded = _downscaleDown(tradeToReport.securityTraded, _scalingFactorSecurity);
+                tradeToReport.currencyTraded = _downscaleDown(tradeToReport.currencyTraded, _scalingFactorCurrency);
+                ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
                 emit TradeReport(
                     _security,
                     tradedInToken==bytes32("security") ? _orderbook.getOrder(tradeToReport.partyRef).party : _orderbook.getOrder(tradeToReport.counterpartyRef).party,
@@ -227,23 +232,38 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         emit OrderBook(address(request.tokenIn), address(request.tokenOut), request.amount, params.price);
 
         if (request.tokenOut == IERC20(_currency) || request.tokenIn == IERC20(_security)) {
-            tp = _orderbook.newOrder(request, params, IOrder.Order.Sell);
+            ( , tp, amount) = _orderbook.newOrder(request, params, IOrder.Order.Sell);
         } 
         else if (request.tokenOut == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
-            tp = _orderbook.newOrder(request, params, IOrder.Order.Buy);
+            ( , tp, amount) = _orderbook.newOrder(request, params, IOrder.Order.Buy);
         }
         if(params.trade == IOrder.OrderType.Market){
-            require(tp!=0, "Insufficient liquidity");
+            require(amount!=0, "Insufficient liquidity");
+            ITrade.trade memory tradeToReport = _orderbook.getTrade(request.from, tp);
+            if(request.tokenOut == IERC20(_currency) || request.tokenIn == IERC20(_security))
+                tradedInToken = "Sell";
+            else 
+                tradedInToken = "Buy";
+            emit TradeReport(
+                _security,
+                _orderbook.getOrder(tradeToReport.partyRef).party,
+                _orderbook.getOrder(tradeToReport.counterpartyRef).party,
+                tradedInToken,
+                tradeToReport.price,
+                _currency,
+                amount,
+                tp
+            );
             if(request.kind == IVault.SwapKind.GIVEN_IN){
                 if (request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
-                    return _downscaleDown(tp, scalingFactors[indexOut]);
+                    return _downscaleDown(amount, scalingFactors[indexOut]);
                 }
             }
             else if(request.kind == IVault.SwapKind.GIVEN_OUT) {
                 if (request.tokenOut == IERC20(_security) || request.tokenOut == IERC20(_currency)) {
-                    return _downscaleDown(tp, scalingFactors[indexIn]);
+                    return _downscaleDown(amount, scalingFactors[indexIn]);
                 }
-            }
+            }            
         }
         
     }
@@ -279,6 +299,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
 
         string memory otype;
         uint256 tp;
+        bytes32 orderRef;
 
         if (request.kind == IVault.SwapKind.GIVEN_IN) 
             request.amount = _upscale(request.amount, scalingFactors[indexIn]);
@@ -307,12 +328,12 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         emit OrderBook(address(request.tokenIn), address(request.tokenOut), request.amount, params.price);
 
         if (request.tokenOut == IERC20(_currency) || request.tokenIn == IERC20(_security)) {
-            tp = _orderbook.newOrder(request, params, IOrder.Order.Sell);
+            (orderRef, , ) = _orderbook.newOrder(request, params, IOrder.Order.Sell);
         } 
         else if (request.tokenOut == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
-            tp = _orderbook.newOrder(request, params, IOrder.Order.Buy);
+            (orderRef, , ) = _orderbook.newOrder(request, params, IOrder.Order.Buy);
         }
-        
+        emit LimitOrders(orderRef);
     }
 
     function _onInitializePool(
