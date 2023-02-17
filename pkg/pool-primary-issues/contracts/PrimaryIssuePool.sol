@@ -59,8 +59,6 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
         uint256 fee;
         uint256 minPrice;
         uint256 minOrderSize;
-        //uint256 iIn;
-        //uint256 iOut;
     }
 
     event OpenIssue(address indexed security, uint256 minimumOrderSize, uint256 minimumPrice, address currency, uint256 securityOffered, uint256 cutoffTime, string offeringDocs);

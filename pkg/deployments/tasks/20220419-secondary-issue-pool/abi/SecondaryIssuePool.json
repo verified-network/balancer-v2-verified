@@ -137,6 +137,12 @@
           "internalType": "uint256",
           "name": "priceOffered",
           "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes32",
+          "name": "orderRef",
+          "type": "bytes32"
         }
       ],
       "name": "OrderBook",

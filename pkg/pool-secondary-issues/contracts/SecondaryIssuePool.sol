@@ -209,15 +209,6 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                     }
                 }
             }
-            /* //This code is in the OnLimit function now
-            else{              
-                if(tp!=0){ //any order where price is indicated is a limit order
-                    params = IOrder.Params({
-                        trade: IOrder.OrderType.Limit,
-                        price: tp 
-                    });                    
-                }
-            }*/                  
         }else{ 
             //by default, any order without price specified is a market order
             params = IOrder.Params({
