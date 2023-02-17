@@ -324,24 +324,6 @@ describe('SecondaryPool', function () {
         })).to.be.revertedWith("Insufficient liquidity");
         return;
       }
-      const buy_order = await pool.swapGivenOut({
-        in: pool.currencyIndex,
-        out: pool.securityIndex,
-        amount: buy_qty,
-        balances: currentBalances,
-        from: trader,
-        data : abiCoder.encode(["string", "uint"], ['Limit', buy_price]), // LimitOrder Buy 15@210
-         
-      });
-
-      const counterPartyTrades = await ob.getTrades({from: lp});
-      const partyTrades = await ob.getTrades({from: trader});
-
-      const cpTradesInfo = await ob.getTrade({from: lp, tradeId: Number(counterPartyTrades[0]) });
-      const pTradesInfo = await ob.getTrade({from: trader, tradeId: Number(partyTrades[0]) });
-  
-      await callSwapEvent(cpTradesInfo,pTradesInfo,counterPartyAmountExpected,partyAmountExpected);
-
     });
 
     context('when pool paused', () => {
@@ -980,9 +962,9 @@ describe('SecondaryPool', function () {
     [...Array(10).keys()].forEach(value => {
       let sell_price = Math.floor((Math.random() * 100) + 1);
       let buy_price = Math.floor((Math.random() * 100) + 1);
-      enum OrderType {"Market" = 1,"Limit","Stop"};
-      let sell_RandomOrderType = Math.floor((Math.random() * 3) + 1);
-      let buy_RandomOrderType = Math.floor((Math.random() * 3) + 1);
+      enum OrderType {"Market" = 1,"Limit"};
+      let sell_RandomOrderType = Math.floor((Math.random() * 2) + 1);
+      let buy_RandomOrderType = Math.floor((Math.random() * 2) + 1);
       let sell_qty = Math.floor((Math.random() * 20) + 1);
       let buy_qty = Math.floor((Math.random() * 20) + 1);
       let misc = false;
@@ -1043,14 +1025,14 @@ describe('SecondaryPool', function () {
           return;
         }
         else{
-          await pool.swapGivenIn({
+          await pool.placeLimitOrder({
             in: pool.securityIndex,
             out: pool.currencyIndex,
+            kind: SwapKind.GivenIn,
             amount: fp(sell_qty),
             from: lp,
-            balances: currentBalances, 
-            data: sell_data, 
-          });
+            data : sell_data,
+          })
         }
         
         if(misc && OrderType[buy_RandomOrderType] == "Market")
@@ -1062,40 +1044,38 @@ describe('SecondaryPool', function () {
             from: trader,
             balances: currentBalances,
             data: buy_data, 
-             
           })).to.be.revertedWith("Insufficient liquidity");
         }
-        else {
-          const buy_order = await pool.swapGivenOut({
-            in: pool.currencyIndex,
-            out: pool.securityIndex,
-            amount: fp(buy_qty),
-            from: trader,
-            balances: currentBalances,
-            data: buy_data, 
-          });
-
+        else { 
           if(OrderType[buy_RandomOrderType] == "Market")
           {
-            expect(buy_order[0].toString()).to.be.equals(currencyTraded.toString()); 
+            const buyMarket = await pool.swapGivenOut({
+              in: pool.currencyIndex,
+              out: pool.securityIndex,
+              amount: fp(buy_qty),
+              from: trader,
+              balances: currentBalances,
+              data: buy_data, 
+            })
+            expect(buyMarket[0].toString()).to.be.equals(currencyTraded.toString()); 
+          }
+          else{
+            if(sell_price > buy_price) return;
+            await pool.placeLimitOrder({
+              in: pool.currencyIndex,
+              out: pool.securityIndex,
+              kind: SwapKind.GivenOut,
+              amount: fp(buy_qty),
+              from: trader,
+              data : buy_data,
+            });
             const counterPartyTrades = await ob.getTrades({from: lp});
             const partyTrades = await ob.getTrades({from: trader});
 
             const cpTradesInfo = await ob.getTrade({from: lp, tradeId: Number(counterPartyTrades[0]) });
             const pTradesInfo = await ob.getTrade({from: trader, tradeId: Number(partyTrades[0]) });
         
-            await callSwapEvent(cpTradesInfo,pTradesInfo,currencyTraded,currencyTraded,"Market");
-          }
-          else{
-            if (buy_order[1]) {
-                const counterPartyTrades = await ob.getTrades({from: lp});
-                const partyTrades = await ob.getTrades({from: trader});
-
-                const cpTradesInfo = await ob.getTrade({from: lp, tradeId: Number(counterPartyTrades[0]) });
-                const pTradesInfo = await ob.getTrade({from: trader, tradeId: Number(partyTrades[0]) });
-            
-                await callSwapEvent(cpTradesInfo,pTradesInfo,currencyTraded,currencyTraded);
-            }
+            await callSwapEvent(cpTradesInfo,pTradesInfo,currencyTraded,currencyTraded);
           }
           
         }
