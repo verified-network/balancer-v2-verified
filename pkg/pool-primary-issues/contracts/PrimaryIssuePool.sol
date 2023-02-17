@@ -64,7 +64,7 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
     }
 
     event OpenIssue(address indexed security, uint256 minimumOrderSize, uint256 minimumPrice, address currency, uint256 securityOffered, uint256 cutoffTime, string offeringDocs);
-    event Subscription(address indexed assetIn, address assetOut, uint256 amount, address investor, uint256 price, uint256 executionDate);
+    event Subscription(address indexed assetIn, address assetOut, uint256 currencySwapped, address investor, uint256 securitySwapped, uint256 executionDate);
 
     constructor(
         IVault vault,
