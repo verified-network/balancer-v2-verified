@@ -115,7 +115,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
 
         _orderbook = new Orderbook(payable(owner), security, currency, address(this));
 
-        emit Offer(security, _MIN_ORDER_SIZE, currency, address(_orderbook));
+        emit Offer(security, minOrderSize, currency, address(_orderbook));
     }
 
     function getSecurity() external view returns (address) {

@@ -25,7 +25,7 @@ contract SecondaryIssuePoolFactory is BasePoolFactory, FactoryWidePauseWindow {
         string calldata symbol,
         address security,
         address currency,
-        uint256 maxAmountsIn,
+        uint256 minOrderSize,
         uint256 tradeFeePercentage
     ) external returns (address) {
         
@@ -39,7 +39,7 @@ contract SecondaryIssuePoolFactory is BasePoolFactory, FactoryWidePauseWindow {
                     symbol,
                     security,
                     currency,
-                    maxAmountsIn,
+                    minOrderSize,
                     tradeFeePercentage,
                     pauseWindowDuration,
                     bufferPeriodDuration,
