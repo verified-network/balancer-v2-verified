@@ -58,7 +58,7 @@
         },
         {
           "internalType": "uint256",
-          "name": "maxAmountsIn",
+          "name": "minOrderSize",
           "type": "uint256"
         },
         {
