@@ -235,7 +235,6 @@ contract Orderbook is IOrder, ITrade, Ownable{
                             }
                             _order.status = IOrder.OrderStatus.Filled;  
                             bidIndex = reportTrade(_order.ref, bestBid, bestPrice, securityTraded, currencyTraded);
-                            deleteOrder(_orderbook.length-1); //order ref is removed from market order list as its qty becomes zero
                             if(_order.otype == IOrder.OrderType.Market){
                                 uint256 traded = calcTraded(_order.ref, _order.party, true);
                                 return (_order.ref, bidIndex, traded);  
@@ -273,7 +272,6 @@ contract Orderbook is IOrder, ITrade, Ownable{
                             }
                             _order.status = IOrder.OrderStatus.Filled;  
                             bidIndex = reportTrade(_order.ref, bestBid, bestPrice, securityTraded, currencyTraded);
-                            deleteOrder(_orderbook.length-1); //order ref is removed from market order list as its qty becomes zero
                             if(_order.otype == IOrder.OrderType.Market){
                                 uint256 traded = calcTraded(_order.ref, _order.party, false);
                                 return (_order.ref, bidIndex, traded);  
@@ -315,7 +313,6 @@ contract Orderbook is IOrder, ITrade, Ownable{
                             }
                             _order.status = IOrder.OrderStatus.Filled;  
                             bidIndex = reportTrade(_order.ref, bestOffer, bestPrice, securityTraded, currencyTraded);
-                            deleteOrder(_orderbook.length-1); //order ref is removed from market order list as its qty becomes zero
                             if(_order.otype == IOrder.OrderType.Market){
                                 uint256 traded = calcTraded(_order.ref, _order.party, false); 
                                 return (_order.ref, bidIndex, traded);  
@@ -353,7 +350,6 @@ contract Orderbook is IOrder, ITrade, Ownable{
                             }
                             _order.status = IOrder.OrderStatus.Filled;  
                             bidIndex = reportTrade(_order.ref, bestOffer, bestPrice, securityTraded, currencyTraded);
-                            deleteOrder(_orderbook.length-1); //order ref is removed from market order list as its qty becomes zero
                             if(_order.otype == IOrder.OrderType.Market){
                                 uint256 traded = calcTraded(_order.ref, _order.party, true); 
                                 return (_order.ref, bidIndex, traded);  

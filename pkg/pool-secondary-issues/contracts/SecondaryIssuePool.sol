@@ -55,7 +55,8 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         uint256 price,
         address currency,
         uint256 amount,
-        uint256 executionDate
+        uint256 executionDate,
+        bytes32 orderRef
     );
 
     event OrderBook(address tokenIn, address tokenOut, uint256 amountOffered, uint256 priceOffered, bytes32 orderRef);
@@ -186,7 +187,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 }
                 tradeToReport.securityTraded = _downscaleDown(tradeToReport.securityTraded, _scalingFactorSecurity);
                 tradeToReport.currencyTraded = _downscaleDown(tradeToReport.currencyTraded, _scalingFactorCurrency);
-                ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
+                // ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
                 emit TradeReport(
                     _security,
                     tradeRef==bytes32("security") ? _orderbook.getOrder(tradeToReport.partyRef).party : _orderbook.getOrder(tradeToReport.counterpartyRef).party,
@@ -195,7 +196,8 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                     tradeToReport.price,
                     _currency,
                     amount,
-                    tradeToReport.dt
+                    tradeToReport.dt,
+                    tradeToReport.partyRef
                 );
                 _orderbook.removeTrade(request.from, tp);
                 if(request.kind == IVault.SwapKind.GIVEN_IN){
@@ -231,20 +233,21 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
             emit OrderBook(address(request.tokenIn), address(request.tokenOut), request.amount, params.price, tradeRef);
 
             require(amount!=0, "Insufficient liquidity");
-            ITrade.trade memory tradeToReport = _orderbook.getTrade(request.from, tp);
+            bytes32 orderType;
             if(request.tokenOut == IERC20(_currency) || request.tokenIn == IERC20(_security))
-                tradeRef = "Sell";
+                orderType = "Sell";
             else 
-                tradeRef = "Buy";
+                orderType = "Buy";
             emit TradeReport(
                 _security,
-                _orderbook.getOrder(tradeToReport.partyRef).party,
-                _orderbook.getOrder(tradeToReport.counterpartyRef).party,
-                tradeRef,
-                tradeToReport.price,
+                request.from,
+                address(0),
+                orderType,
+                0,
                 _currency,
                 amount,
-                tp
+                tp,
+                tradeRef
             );
             if(request.kind == IVault.SwapKind.GIVEN_IN){
                 if (request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
