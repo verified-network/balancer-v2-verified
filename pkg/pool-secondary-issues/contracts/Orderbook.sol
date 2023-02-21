@@ -464,7 +464,7 @@ contract Orderbook is IOrder, ITrade, Ownable{
         if (_orders[_orderRef].otype == IOrder.OrderType.Limit) {
             _orderIndex[_orderRef] = _orderbook.length;
             _orderbook.push(_orderRef);
-            checkLimitOrders(_orderRef, IOrder.OrderType.Limit);
+            //checkLimitOrders(_orderRef, IOrder.OrderType.Limit);
         } 
         //reverse trade
         uint256 oIndex = executionDate + 1;
