@@ -181,11 +181,11 @@ contract Orderbook is IOrder, ITrade, Ownable{
         (i, _marketOrders) = checkLimitOrders(_order.ref, _trade);
         if(_trade==IOrder.OrderType.Market){
             if(i < _order.qty)
-                return (_order.ref, 0, 0);
+                return (_order.ref, block.timestamp, 0);
         }
         else if(_trade==IOrder.OrderType.Limit){
             if(i==0)
-                return (_order.ref, 0, 0);
+                return (_order.ref, block.timestamp, 0);
         }
         //if market depth exists, then fill order at one or more price points in the order book
         for(i=0; i<_marketOrders.length; i++){
