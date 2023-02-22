@@ -200,7 +200,7 @@
         {
           "indexed": false,
           "internalType": "uint256",
-          "name": "currencySwapped",
+          "name": "subscription",
           "type": "uint256"
         },
         {
@@ -212,7 +212,7 @@
         {
           "indexed": false,
           "internalType": "uint256",
-          "name": "securitySwapped",
+          "name": "price",
           "type": "uint256"
         },
         {

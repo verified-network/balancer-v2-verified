@@ -58,7 +58,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         uint256 executionDate
     );
 
-    event OrderBook(address tokenIn, address tokenOut, uint256 amountOffered, uint256 priceOffered, address owner);
+    event OrderBook(address tokenIn, address tokenOut, uint256 amountOffered, uint256 priceOffered, uint256 timestamp, address owner);
 
     event Offer(address indexed security, uint256 minOrderSize, address currency, address orderBook);  
 
@@ -229,19 +229,24 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
             }
 
             require(amount!=0, "Insufficient liquidity");
-            emit OrderBook(address(request.tokenIn), address(request.tokenOut), request.amount, params.price, msg.sender);
+            emit OrderBook(address(request.tokenIn), address(request.tokenOut), request.amount, params.price, tp, msg.sender);
 
             bytes32 orderType;
-            if(request.tokenOut == IERC20(_currency) || request.tokenIn == IERC20(_security))
+            uint256 price;
+            if(request.tokenOut == IERC20(_currency) || request.tokenIn == IERC20(_security)){
                 orderType = "Sell";
-            else 
+                price = amount.divDown(request.amount);
+            }
+            else{ 
                 orderType = "Buy";
+                price = request.amount.divDown(amount);
+            }
             emit TradeReport(
                 _security,
                 request.from,
                 address(0),
                 orderType,
-                0,
+                price,
                 _currency,
                 amount,
                 tp
@@ -318,12 +323,12 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         require(request.amount >= _MIN_ORDER_SIZE, "Order below minimum size");        
 
         if (request.tokenOut == IERC20(_currency) || request.tokenIn == IERC20(_security)) {
-            (orderRef, , ) = _orderbook.newOrder(request, params, IOrder.Order.Sell);
+            (orderRef, tp, ) = _orderbook.newOrder(request, params, IOrder.Order.Sell);
         } 
         else if (request.tokenOut == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
-            (orderRef, , ) = _orderbook.newOrder(request, params, IOrder.Order.Buy);
+            (orderRef, tp, ) = _orderbook.newOrder(request, params, IOrder.Order.Buy);
         }
-        emit OrderBook(address(request.tokenIn), address(request.tokenOut), request.amount, params.price, request.from);
+        emit OrderBook(address(request.tokenIn), address(request.tokenOut), request.amount, params.price, tp, request.from);
     }
 
     function _onInitializePool(

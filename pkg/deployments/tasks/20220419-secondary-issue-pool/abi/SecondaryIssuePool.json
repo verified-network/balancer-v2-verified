@@ -143,6 +143,12 @@
           "internalType": "bytes32",
           "name": "orderRef",
           "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "timestamp",
+          "type": "uint256"
         }
       ],
       "name": "OrderBook",
