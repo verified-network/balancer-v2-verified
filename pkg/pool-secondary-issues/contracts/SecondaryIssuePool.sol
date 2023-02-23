@@ -58,7 +58,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         uint256 executionDate
     );
 
-    event OrderBook(address tokenIn, address tokenOut, uint256 amountOffered, uint256 priceOffered, uint256 timestamp, address owner);
+    event OrderBook(address creator, address tokenIn, address tokenOut, uint256 amountOffered, uint256 priceOffered, uint256 timestamp, bytes32 orderRef);
 
     event Offer(address indexed security, uint256 minOrderSize, address currency, address orderBook);  
 
@@ -229,7 +229,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
             }
 
             require(amount!=0, "Insufficient liquidity");
-            emit OrderBook(address(request.tokenIn), address(request.tokenOut), request.amount, params.price, tp, msg.sender);
+            emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, params.price, tp, tradeRef);
 
             bytes32 orderType;
             uint256 price;
@@ -328,7 +328,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         else if (request.tokenOut == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
             (orderRef, tp, ) = _orderbook.newOrder(request, params, IOrder.Order.Buy);
         }
-        emit OrderBook(address(request.tokenIn), address(request.tokenOut), request.amount, params.price, tp, request.from);
+        emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, params.price, tp, orderRef);
     }
 
     function _onInitializePool(

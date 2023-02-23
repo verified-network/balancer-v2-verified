@@ -117,6 +117,12 @@
         {
           "indexed": false,
           "internalType": "address",
+          "name": "creator",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
           "name": "tokenIn",
           "type": "address"
         },
@@ -140,15 +146,15 @@
         },
         {
           "indexed": false,
-          "internalType": "bytes32",
-          "name": "orderRef",
-          "type": "bytes32"
-        },
-        {
-          "indexed": false,
           "internalType": "uint256",
           "name": "timestamp",
           "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes32",
+          "name": "orderRef",
+          "type": "bytes32"
         }
       ],
       "name": "OrderBook",
@@ -243,12 +249,6 @@
           "internalType": "uint256",
           "name": "executionDate",
           "type": "uint256"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes32",
-          "name": "orderRef",
-          "type": "bytes32"
         }
       ],
       "name": "TradeReport",
