@@ -60,7 +60,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
 
     event OrderBook(address creator, address tokenIn, address tokenOut, uint256 amountOffered, uint256 priceOffered, uint256 timestamp, bytes32 orderRef);
 
-    event Offer(address indexed security, uint256 minOrderSize, address currency, address orderBook);  
+    event Offer(address indexed security, uint256 minOrderSize, address currency, address orderBook, address issueManager);  
 
     constructor(
         IVault vault,
@@ -114,7 +114,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
 
         _orderbook = new Orderbook(payable(owner), security, currency, address(this));
 
-        emit Offer(security, minOrderSize, currency, address(_orderbook));
+        emit Offer(security, minOrderSize, currency, address(_orderbook), owner);
     }
 
     function getSecurity() external view returns (address) {

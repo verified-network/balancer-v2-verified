@@ -61,7 +61,7 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
         uint256 minOrderSize;
     }
 
-    event OpenIssue(address indexed security, uint256 minimumOrderSize, uint256 minimumPrice, address currency, uint256 securityOffered, uint256 cutoffTime, string offeringDocs);
+    event OpenIssue(address indexed security, uint256 minimumOrderSize, uint256 minimumPrice, address currency, uint256 securityOffered, uint256 cutoffTime, string offeringDocs, address issueManager);
     event Subscription(address indexed assetIn, address assetOut, uint256 subscription, address investor, uint256 price, uint256 executionDate);
 
     constructor(
@@ -128,7 +128,8 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
                         factoryPoolParams.currency, 
                         factoryPoolParams.maxAmountsIn, 
                         factoryPoolParams.cutOffTime, 
-                        factoryPoolParams.offeringDocs);
+                        factoryPoolParams.offeringDocs,
+                        owner);
     }
 
     function getSecurity() external view override returns (IERC20) {
