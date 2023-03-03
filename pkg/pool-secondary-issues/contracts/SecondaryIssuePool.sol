@@ -323,12 +323,12 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         require(request.amount >= _MIN_ORDER_SIZE, "Order below minimum size");        
 
         if (request.tokenOut == IERC20(_currency) || request.tokenIn == IERC20(_security)) {
-            (orderRef, tp, ) = _orderbook.newOrder(request, params, IOrder.Order.Sell);
+            (orderRef, , ) = _orderbook.newOrder(request, params, IOrder.Order.Sell);
         } 
         else if (request.tokenOut == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
-            (orderRef, tp, ) = _orderbook.newOrder(request, params, IOrder.Order.Buy);
+            (orderRef, , ) = _orderbook.newOrder(request, params, IOrder.Order.Buy);
         }
-        emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, params.price, tp, orderRef);
+        emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, params.price, block.timestamp, orderRef);
     }
 
     function _onInitializePool(
