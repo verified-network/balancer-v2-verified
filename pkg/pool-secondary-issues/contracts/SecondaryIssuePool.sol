@@ -49,6 +49,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
     
     event TradeReport(
         address indexed security,
+        bytes32 orderRef,
         address party,
         address counterparty,
         bytes32 orderType,
@@ -186,6 +187,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 }
                 emit TradeReport(
                     _security,
+                    tradeRef,
                     tradeRef==bytes32("security") ? _orderbook.getOrder(tradeToReport.partyRef).party : _orderbook.getOrder(tradeToReport.counterpartyRef).party,
                     tradeRef==bytes32("currency") ? _orderbook.getOrder(tradeToReport.partyRef).party : _orderbook.getOrder(tradeToReport.counterpartyRef).party,
                     orderType,
@@ -242,8 +244,9 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 orderType = "Buy";
                 price = request.amount.divDown(amount);
             }
-            emit TradeReport(
+            /*emit TradeReport(
                 _security,
+                tradeRef,
                 request.from,
                 address(0),
                 orderType,
@@ -251,7 +254,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 _currency,
                 amount,
                 tp
-            );
+            );*/
             if(request.kind == IVault.SwapKind.GIVEN_IN){
                 if (request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
                     return _downscaleDown(amount, scalingFactors[indexOut]);
