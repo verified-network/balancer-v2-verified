@@ -184,19 +184,20 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 else if (request.tokenOut == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
                     orderType = "Buy";
                 }
-                tradeToReport.securityTraded = _downscaleDown(tradeToReport.securityTraded, _scalingFactorSecurity);
-                tradeToReport.currencyTraded = _downscaleDown(tradeToReport.currencyTraded, _scalingFactorCurrency);
-                //ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
                 emit TradeReport(
                     _security,
                     tradeRef==bytes32("security") ? _orderbook.getOrder(tradeToReport.partyRef).party : _orderbook.getOrder(tradeToReport.counterpartyRef).party,
                     tradeRef==bytes32("currency") ? _orderbook.getOrder(tradeToReport.partyRef).party : _orderbook.getOrder(tradeToReport.counterpartyRef).party,
                     orderType,
-                    tradeToReport.price,
+                    //tradeToReport.price,
+                    tradeToReport.currencyTraded.divDown(tradeToReport.securityTraded),                    
                     _currency,
                     amount,
                     tradeToReport.dt
                 );
+                tradeToReport.securityTraded = _downscaleDown(tradeToReport.securityTraded, _scalingFactorSecurity);
+                tradeToReport.currencyTraded = _downscaleDown(tradeToReport.currencyTraded, _scalingFactorCurrency);
+                //ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
                 _orderbook.removeTrade(request.from, tp);
                 if(request.kind == IVault.SwapKind.GIVEN_IN){
                     if (request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) {

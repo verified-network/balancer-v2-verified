@@ -12,7 +12,7 @@ interface ITrade {
         bytes32 partyRef;
         address partyAddress;
         bytes32 counterpartyRef;
-        uint256 price;
+        //uint256 price;
         uint256 dt;
         uint256 securityTraded;
         uint256 currencyTraded;

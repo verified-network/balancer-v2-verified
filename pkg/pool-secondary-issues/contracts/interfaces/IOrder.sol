@@ -24,7 +24,7 @@ interface IOrder {
         uint256 qty;
         address party;
         uint256 price;  
-        bytes32 ref;  
+        //bytes32 ref;  
     }
 
     struct Params {

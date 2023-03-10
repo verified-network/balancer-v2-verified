@@ -83,17 +83,17 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
             status: IOrder.OrderStatus.Open,
             qty: _request.amount,
             party: _request.from,
-            price: _params.price,  
-            ref: ref
+            price: _params.price//,  
+            //ref: ref
         });
         _orders[ref] = nOrder;
         insert(_params.price, ref);
         if (_params.trade == IOrder.OrderType.Market) {            
-            return matchOrders(nOrder, IOrder.OrderType.Market);
+            return matchOrders(ref, nOrder, IOrder.OrderType.Market);
         } else if (_params.trade == IOrder.OrderType.Limit) {            
             //_orderIndex[ref] = _orderbook.length;
             //_orderbook.push(ref);
-            return matchOrders(nOrder, IOrder.OrderType.Limit);
+            return matchOrders(ref, nOrder, IOrder.OrderType.Limit);
         } 
     }
 
@@ -160,7 +160,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                 }
                 if(_trade!=IOrder.OrderType.Market && _orderbook[i].ref!=_ref){
                 //only if the consecutive order is a limit order, it goes to the market order book
-                    _marketOrders[index+1] = _ref;
+                    _marketOrders[index++] = _ref;
                 }  
                 if( //if it is a sell order, ie, security in
                     (_orders[_ref].tokenIn == _security && _orders[_ref].swapKind == IVault.SwapKind.GIVEN_IN) ||
@@ -182,7 +182,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
 
     //match market orders. Sellers get the best price (highest bid) they can sell at.
     //Buyers get the best price (lowest offer) they can buy at.
-    function matchOrders(IOrder.order memory _order, IOrder.OrderType _trade) private returns (bytes32, uint256, uint256){
+    function matchOrders(bytes32 ref, IOrder.order memory _order, IOrder.OrderType _trade) private returns (bytes32, uint256, uint256){
         bytes32 bestBid;
         uint256 bestPrice = 0;
         bytes32 bestOffer;        
@@ -193,20 +193,20 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         bytes32[] memory _marketOrders = new bytes32[](_orderbook.length);
 
         //check if enough market volume exist to fulfil market orders, or if market depth is zero
-        (i, _marketOrders) = checkLimitOrders(_order.ref, _trade);
+        (i, _marketOrders) = checkLimitOrders(ref, _trade);
         if(_trade==IOrder.OrderType.Market){
             if(i < _order.qty)
-                return (_order.ref, block.timestamp, 0);
+                return (ref, block.timestamp, 0);
         }
         else if(_trade==IOrder.OrderType.Limit){
             if(i==0)
-                return (_order.ref, block.timestamp, 0);
+                return (ref, block.timestamp, 0);
         }
         //if market depth exists, then fill order at one or more price points in the order book
         for(i=0; i<_marketOrders.length; i++){
             if (_order.qty == 0) break; //temporary condition to avoid unnesscary looping for consecutive limit orders
             if (
-                _marketOrders[i] != _order.ref && //orders can not be matched with themselves
+                _marketOrders[i] != ref && //orders can not be matched with themselves
                 _orders[_marketOrders[i]].party != _order.party && //orders posted by a party can not be matched by a counter offer by the same party
                 _orders[_marketOrders[i]].status != IOrder.OrderStatus.Filled //orders that are filled can not be matched /traded again
             ) {
@@ -249,10 +249,10 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                                 _orders[bestBid].status = IOrder.OrderStatus.PartlyFilled;
                             }
                             _order.status = IOrder.OrderStatus.Filled;  
-                            bidIndex = reportTrade(_order.ref, bestBid, bestPrice, securityTraded, currencyTraded);
+                            bidIndex = reportTrade(ref, bestBid, /*bestPrice,*/ securityTraded, currencyTraded);
                             if(_order.otype == IOrder.OrderType.Market){
-                                uint256 traded = calcTraded(_order.ref, _order.party, true);
-                                return (_order.ref, bidIndex, traded);  
+                                uint256 traded = calcTraded(ref, _order.party, true);
+                                return (ref, bidIndex, traded);  
                             }
                         }    
                         else if(securityTraded!=0){
@@ -261,7 +261,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                             _orders[bestBid].qty = 0;
                             _orders[bestBid].status = IOrder.OrderStatus.Filled;
                             _order.status = IOrder.OrderStatus.PartlyFilled;
-                            reportTrade(_order.ref, bestBid, bestPrice, securityTraded, currencyTraded);
+                            reportTrade(ref, bestBid, /*bestPrice,*/ securityTraded, currencyTraded);
                             deleteOrder(bidIndex); //bid order ref is removed from market order list as its qty becomes zero
                         }
                     }
@@ -286,10 +286,10 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                                 _orders[bestBid].status = IOrder.OrderStatus.PartlyFilled;
                             }
                             _order.status = IOrder.OrderStatus.Filled;  
-                            bidIndex = reportTrade(_order.ref, bestBid, bestPrice, securityTraded, currencyTraded);
+                            bidIndex = reportTrade(ref, bestBid, /*bestPrice,*/ securityTraded, currencyTraded);
                             if(_order.otype == IOrder.OrderType.Market){
-                                uint256 traded = calcTraded(_order.ref, _order.party, false);
-                                return (_order.ref, bidIndex, traded);  
+                                uint256 traded = calcTraded(ref, _order.party, false);
+                                return (ref, bidIndex, traded);  
                             }
                         }    
                         else if(currencyTraded!=0){
@@ -298,7 +298,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                             _orders[bestBid].qty = 0;
                             _orders[bestBid].status = IOrder.OrderStatus.Filled;
                             _order.status = IOrder.OrderStatus.PartlyFilled;   
-                            reportTrade(_order.ref, bestBid, bestPrice, securityTraded, currencyTraded);                     
+                            reportTrade(ref, bestBid, /*bestPrice,*/ securityTraded, currencyTraded);                     
                             deleteOrder(bidIndex); //bid order ref is removed from market order list as its qty becomes zero
                         }
                     }
@@ -327,10 +327,10 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                                 _orders[bestOffer].status = IOrder.OrderStatus.PartlyFilled;
                             }
                             _order.status = IOrder.OrderStatus.Filled;  
-                            bidIndex = reportTrade(_order.ref, bestOffer, bestPrice, securityTraded, currencyTraded);
+                            bidIndex = reportTrade(ref, bestOffer, /*bestPrice,*/ securityTraded, currencyTraded);
                             if(_order.otype == IOrder.OrderType.Market){
-                                uint256 traded = calcTraded(_order.ref, _order.party, false); 
-                                return (_order.ref, bidIndex, traded);  
+                                uint256 traded = calcTraded(ref, _order.party, false); 
+                                return (ref, bidIndex, traded);  
                             }  
                         }    
                         else if(currencyTraded!=0){
@@ -339,7 +339,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                             _orders[bestOffer].qty = 0;
                             _orders[bestOffer].status = IOrder.OrderStatus.Filled;
                             _order.status = IOrder.OrderStatus.PartlyFilled;    
-                            reportTrade(_order.ref, bestOffer, bestPrice, securityTraded, currencyTraded);                    
+                            reportTrade(ref, bestOffer, /*bestPrice,*/ securityTraded, currencyTraded);                    
                             deleteOrder(bidIndex); //bid order ref is removed from market order list as its qty becomes zero
                         }                    
                     }
@@ -364,10 +364,10 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                                 _orders[bestOffer].status = IOrder.OrderStatus.PartlyFilled;
                             }
                             _order.status = IOrder.OrderStatus.Filled;  
-                            bidIndex = reportTrade(_order.ref, bestOffer, bestPrice, securityTraded, currencyTraded);
+                            bidIndex = reportTrade(ref, bestOffer, /*bestPrice,*/ securityTraded, currencyTraded);
                             if(_order.otype == IOrder.OrderType.Market){
-                                uint256 traded = calcTraded(_order.ref, _order.party, true); 
-                                return (_order.ref, bidIndex, traded);  
+                                uint256 traded = calcTraded(ref, _order.party, true); 
+                                return (ref, bidIndex, traded);  
                             }
                         }    
                         else if(securityTraded!=0){
@@ -376,7 +376,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                             _orders[bestOffer].qty = 0;
                             _orders[bestOffer].status = IOrder.OrderStatus.Filled;
                             _order.status = IOrder.OrderStatus.PartlyFilled;
-                            reportTrade(_order.ref, bestOffer, bestPrice, securityTraded, currencyTraded);
+                            reportTrade(ref, bestOffer, /*bestPrice,*/ securityTraded, currencyTraded);
                             deleteOrder(bidIndex); //bid order ref is removed from market order list as its qty becomes zero
                         }
                     }                
@@ -407,22 +407,22 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         _orderbook = tempArray;
     }*/
 
-    function reportTrade(bytes32 _ref, bytes32 _cref, uint256 _price, uint256 securityTraded, uint256 currencyTraded) private returns(uint256){
+    function reportTrade(bytes32 _ref, bytes32 _cref, /*uint256 _price,*/ uint256 securityTraded, uint256 currencyTraded) private returns(uint256){
         _previousTs = _previousTs + 1;
         uint256 oIndex = _previousTs;
         ITrade.trade memory tradeToReport = ITrade.trade({
             partyRef: _ref,
             partyAddress:  _orders[_ref].party,
             counterpartyRef: _cref,            
-            price: _price,
+            //price: _price,
             dt: oIndex,
             securityTraded: securityTraded,
             currencyTraded: currencyTraded
         });                 
         _tradeRefs[_orders[_ref].party][oIndex] = tradeToReport;
         _tradeRefs[_orders[_cref].party][oIndex] = tradeToReport;        
-        _trades[_orders[_ref].party].push(oIndex);
-        _trades[_orders[_cref].party].push(oIndex);
+        _trades[_orders[_ref].party].push(tradeToReport.dt);
+        _trades[_orders[_cref].party].push(tradeToReport.dt);
         return (oIndex);
     }
 
@@ -477,6 +477,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         _orders[_orderRef].status = OrderStatus.Open;
         //push to order book
         if (_orders[_orderRef].otype == IOrder.OrderType.Limit) {
+            insert(_orders[_orderRef].price, _orderRef);
             //_orderIndex[_orderRef] = _orderbook.length;
             //_orderbook.push(_orderRef);
             //checkLimitOrders(_orderRef, IOrder.OrderType.Limit);
@@ -490,7 +491,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
             partyRef: _ref,
             partyAddress: _orders[_ref].party,
             counterpartyRef: _cref,
-            price: tradeToRevert.price,
+            //price: tradeToRevert.price,
             securityTraded: tradeToRevert.securityTraded,
             currencyTraded: tradeToRevert.currencyTraded, 
             dt: oIndex
