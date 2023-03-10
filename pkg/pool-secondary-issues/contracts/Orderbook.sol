@@ -5,6 +5,8 @@
 pragma solidity ^0.7.0;
 pragma experimental ABIEncoderV2;
 
+import "./Heap.sol";
+
 import "./interfaces/IOrder.sol";
 import "./interfaces/ITrade.sol";
 import "./interfaces/ISecondaryIssuePool.sol";
@@ -14,7 +16,7 @@ import "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
 import "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/Ownable.sol";
 import "@balancer-labs/v2-interfaces/contracts/vault/IPoolSwapStructs.sol";
 
-contract Orderbook is IOrder, ITrade, Ownable{
+contract Orderbook is IOrder, ITrade, Ownable, Heap{
     using FixedPoint for uint256;
 
     //counter for block timestamp nonce for creating unique order references
@@ -24,9 +26,9 @@ contract Orderbook is IOrder, ITrade, Ownable{
     mapping(bytes32 => IOrder.order) private _orders;
 
     //order references
-    bytes32[] private _orderbook;
+    //bytes32[] private _orderbook;
 
-    mapping(bytes32 => uint256) private _orderIndex;
+    //mapping(bytes32 => uint256) private _orderIndex;
 
     //order references from party to order timestamp
     mapping(address => mapping(uint256 => ITrade.trade)) private _tradeRefs;
@@ -85,11 +87,12 @@ contract Orderbook is IOrder, ITrade, Ownable{
             ref: ref
         });
         _orders[ref] = nOrder;
+        insert(_params.price, ref);
         if (_params.trade == IOrder.OrderType.Market) {            
             return matchOrders(nOrder, IOrder.OrderType.Market);
         } else if (_params.trade == IOrder.OrderType.Limit) {            
-            _orderIndex[ref] = _orderbook.length;
-            _orderbook.push(ref);
+            //_orderIndex[ref] = _orderbook.length;
+            //_orderbook.push(ref);
             return matchOrders(nOrder, IOrder.OrderType.Limit);
         } 
     }
@@ -98,8 +101,8 @@ contract Orderbook is IOrder, ITrade, Ownable{
         bytes32[] memory refs = new bytes32[](_orderbook.length);
         uint256 i;
         for(uint256 j=0; j<_orderbook.length; j++){
-            if(_orders[_orderbook[j]].party==msg.sender){
-                refs[i] = _orderbook[j];
+            if(_orders[_orderbook[j].ref].party==msg.sender){
+                refs[i] = _orderbook[j].ref;
                 i++;
             }
         }
@@ -125,11 +128,15 @@ contract Orderbook is IOrder, ITrade, Ownable{
         require (_orders[ref].otype != IOrder.OrderType.Market, "Market order can not be cancelled");
         require(_orders[ref].status == IOrder.OrderStatus.Open, "Order is already filled");
         require(_orders[ref].party == msg.sender, "Sender is not order creator");
-        if (_orderbook.length > 0)
+        /*if (_orderbook.length > 0)
         {
             delete _orderbook[_orderIndex[ref]]; 
         }
-        delete _orderIndex[ref];
+        delete _orderIndex[ref];*/
+        for(uint256 i=0; i<_orderbook.length; i++){
+            if(_orderbook[i].ref==ref)
+                deleteOrder(i);
+        }
         delete _orders[ref];
     }
 
@@ -140,30 +147,38 @@ contract Orderbook is IOrder, ITrade, Ownable{
         bytes32[] memory _marketOrders = new bytes32[](_orderbook.length);
         uint256 index;
         for (uint256 i = 0; i < _orderbook.length; i++){
-            if(_orderbook[i] == 0) continue;
-            if ((_orders[_orderbook[i]].order == IOrder.Order.Buy && _orders[_ref].order == IOrder.Order.Sell && (_orders[_orderbook[i]].price >= _orders[_ref].price || _orders[_ref].price==0)) ||
-                (_orders[_orderbook[i]].order == IOrder.Order.Sell && _orders[_ref].order == IOrder.Order.Buy && (_orders[_orderbook[i]].price <= _orders[_ref].price || _orders[_ref].price==0))){
-                _marketOrders[index] = _orderbook[i];
+            if(_orderbook[i].value == 0) continue;
+            if ((_orders[_orderbook[i].ref].order == IOrder.Order.Buy && _orders[_ref].order == IOrder.Order.Sell && (_orders[_orderbook[i].ref].price >= _orders[_ref].price || _orders[_ref].price==0)) ||
+                (_orders[_orderbook[i].ref].order == IOrder.Order.Sell && _orders[_ref].order == IOrder.Order.Buy && (_orders[_orderbook[i].ref].price <= _orders[_ref].price || _orders[_ref].price==0))){
+                _marketOrders[index] = _orderbook[i].ref;
                 if((_orders[_ref].tokenIn==_security && _orders[_ref].swapKind==IVault.SwapKind.GIVEN_IN) ||
                     (_orders[_ref].tokenOut==_currency && _orders[_ref].swapKind==IVault.SwapKind.GIVEN_OUT)){
-                    volume = Math.add(volume, _orders[_orderbook[i]].qty);
+                    volume = Math.add(volume, _orders[_orderbook[i].ref].qty);
                 }
                 else{
-                    volume = Math.add(volume, _orders[_orderbook[i]].price.mulDown(_orders[_orderbook[i]].qty));
+                    volume = Math.add(volume, _orders[_orderbook[i].ref].price.mulDown(_orders[_orderbook[i].ref].qty));
                 }
-                if(_trade!=IOrder.OrderType.Market && _orderbook[i]!=_ref){
+                if(_trade!=IOrder.OrderType.Market && _orderbook[i].ref!=_ref){
                 //only if the consecutive order is a limit order, it goes to the market order book
                     _marketOrders[index+1] = _ref;
                 }  
+                if( //if it is a sell order, ie, security in
+                    (_orders[_ref].tokenIn == _security && _orders[_ref].swapKind == IVault.SwapKind.GIVEN_IN) ||
+                    //if it is a buy order, ie, currency in
+                    (_orders[_ref].tokenIn == _currency && _orders[_ref].swapKind == IVault.SwapKind.GIVEN_IN)) {
+                        if(volume >= _orders[_ref].qty)
+                            //if available market depth exceeds qty to trade, exit and avoid unnecessary lookup through orderbook  
+                            return (volume, _marketOrders); 
+                } 
                 index++;                    
             } 
         }
         return (volume, _marketOrders);  
     }
 
-    function deleteOrder(uint256 position) private {
+    /*function deleteOrder(uint256 position) private {
         delete _orderbook[position];
-    }
+    }*/
 
     //match market orders. Sellers get the best price (highest bid) they can sell at.
     //Buyers get the best price (lowest offer) they can buy at.
@@ -369,10 +384,10 @@ contract Orderbook is IOrder, ITrade, Ownable{
             }
         }
         delete _marketOrders;
-        removeOrderBookZeros();
+        //removeOrderBookZeros();
     }
     
-    function removeOrderBookZeros() private {
+    /*function removeOrderBookZeros() private {
         uint nonZeroCount = 0;
         for (uint i = 0; i < _orderbook.length; i++) {
             if (_orderbook[i] != 0) {
@@ -384,13 +399,13 @@ contract Orderbook is IOrder, ITrade, Ownable{
         uint newIndex = 0;
         for (uint i = 0; i < _orderbook.length; i++) {
             if (_orderbook[i] != 0) {
-                _orderIndex[_orderbook[i]] = newIndex;  // updating order Index
+                //_orderIndex[_orderbook[i]] = newIndex;  // updating order Index
                 tempArray[newIndex] = _orderbook[i];
                 newIndex++;
             }
         }
         _orderbook = tempArray;
-    }
+    }*/
 
     function reportTrade(bytes32 _ref, bytes32 _cref, uint256 _price, uint256 securityTraded, uint256 currencyTraded) private returns(uint256){
         _previousTs = _previousTs + 1;
@@ -425,7 +440,7 @@ contract Orderbook is IOrder, ITrade, Ownable{
             delete _trades[_party][i];
             delete _tradeRefs[_party][oIndex];
         }
-        removeOrderBookZeros();
+        //removeOrderBookZeros();
         return volume; 
     }   
 
@@ -462,8 +477,8 @@ contract Orderbook is IOrder, ITrade, Ownable{
         _orders[_orderRef].status = OrderStatus.Open;
         //push to order book
         if (_orders[_orderRef].otype == IOrder.OrderType.Limit) {
-            _orderIndex[_orderRef] = _orderbook.length;
-            _orderbook.push(_orderRef);
+            //_orderIndex[_orderRef] = _orderbook.length;
+            //_orderbook.push(_orderRef);
             //checkLimitOrders(_orderRef, IOrder.OrderType.Limit);
         } 
         //reverse trade

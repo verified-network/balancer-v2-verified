@@ -186,7 +186,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 }
                 tradeToReport.securityTraded = _downscaleDown(tradeToReport.securityTraded, _scalingFactorSecurity);
                 tradeToReport.currencyTraded = _downscaleDown(tradeToReport.currencyTraded, _scalingFactorCurrency);
-                ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
+                //ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
                 emit TradeReport(
                     _security,
                     tradeRef==bytes32("security") ? _orderbook.getOrder(tradeToReport.partyRef).party : _orderbook.getOrder(tradeToReport.counterpartyRef).party,
