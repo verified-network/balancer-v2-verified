@@ -15,11 +15,11 @@ interface IOrder {
     enum Order{ Buy, Sell } 
 
     struct order{
-        IVault.SwapKind swapKind; 
+        //IVault.SwapKind swapKind; 
         address tokenIn;
-        address tokenOut;
+        //address tokenOut;
         OrderType otype;
-        Order order;
+        //Order order;
         OrderStatus status;
         uint256 qty;
         address party;
@@ -48,6 +48,6 @@ interface IOrder {
 
     function orderFilled(bytes32 partyRef, bytes32 counterpartyRef, uint256 executionDate) external;
 
-    function revertTrade(bytes32 _orderRef, uint256 _qty, IOrder.Order _order, uint256 executionDate) external;
+    function revertTrade(bytes32 _orderRef, uint256 _qty, /*IOrder.Order _order,*/ uint256 executionDate) external;
     
 }

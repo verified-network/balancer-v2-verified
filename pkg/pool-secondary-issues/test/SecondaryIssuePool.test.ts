@@ -1241,7 +1241,7 @@ describe('SecondaryPool', function () {
       expect(sell_order[0].toString()).to.be.equal(avgCurrencyTraded.toString());
       
     });
-    /*it('===== Gerg\'s Test =====', async () => {
+    it('===== Gerg\'s Test =====', async () => {
       const numTrades = 25;
       const amount = 0.1;
       for (var i = 0; i < numTrades; i++) {
@@ -1263,7 +1263,7 @@ describe('SecondaryPool', function () {
         balances: currentBalances,
         data: abiCoder.encode([], [])
       });
-    });*/
+    });
   })
 
 });
