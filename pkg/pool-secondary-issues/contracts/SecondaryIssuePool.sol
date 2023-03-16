@@ -167,7 +167,8 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 ITrade.trade memory tradeToReport = _orderbook.getTrade(request.from, tp);
                 tradeRef = _orderbook.getOrder(tradeToReport.partyAddress == request.from 
                                             ? tradeToReport.partyRef : tradeToReport.counterpartyRef)
-                                            .tokenIn==_security? bytes32("security") : bytes32("currency");                
+                                            //.tokenIn==_security? bytes32("security") : bytes32("currency");        
+                                            .swapKind==IVault.SwapKind.GIVEN_IN ? bytes32("security") : bytes32("currency");                
                 if(request.tokenIn==IERC20(_security) && request.kind==IVault.SwapKind.GIVEN_IN ||
                     request.tokenOut==IERC20(_security) && request.kind==IVault.SwapKind.GIVEN_OUT
                 ){
@@ -227,7 +228,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
             if (/*request.tokenOut == IERC20(_currency) ||*/ request.tokenIn == IERC20(_security)) {
                 (tradeRef, tp, amount) = _orderbook.newOrder(request, params);//, IOrder.Order.Sell);
             } 
-            else if (/*request.tokenOut == IERC20(_security) ||*/ request.tokenIn == IERC20(_currency)) {
+            else if (request.tokenOut == IERC20(_security) /*|| request.tokenIn == IERC20(_currency)*/) {
                 (tradeRef, tp, amount) = _orderbook.newOrder(request, params);//, IOrder.Order.Buy);
             }
             else{
@@ -243,7 +244,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 orderType = "Sell";
                 price = amount.divDown(request.amount);
             }
-            else if(/*request.tokenOut == IERC20(_security) ||*/ request.tokenIn == IERC20(_currency)){
+            else if(request.tokenOut == IERC20(_security) /*|| request.tokenIn == IERC20(_currency)*/){
                 orderType = "Buy";
                 price = request.amount.divDown(amount);
             }
@@ -259,15 +260,15 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 tp
             );*/
             if(request.kind == IVault.SwapKind.GIVEN_IN){
-                if (request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
+                if (request.tokenIn == IERC20(_security) /*|| request.tokenIn == IERC20(_currency)*/) {
                     return _downscaleDown(amount, scalingFactors[indexOut]);
                 }
             }
-            /*else if(request.kind == IVault.SwapKind.GIVEN_OUT) {
-                if (request.tokenOut == IERC20(_security) || request.tokenOut == IERC20(_currency)) {
+            else if(request.kind == IVault.SwapKind.GIVEN_OUT) {
+                if (request.tokenOut == IERC20(_security) /*|| request.tokenOut == IERC20(_currency)*/) {
                     return _downscaleDown(amount, scalingFactors[indexIn]);
                 }
-            }*/            
+            }            
         }
         
     }
@@ -332,7 +333,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         if (/*request.tokenOut == IERC20(_currency) ||*/ request.tokenIn == IERC20(_security)) {
             (orderRef, , ) = _orderbook.newOrder(request, params);//, IOrder.Order.Sell);
         } 
-        else if (/*request.tokenOut == IERC20(_security) ||*/ request.tokenIn == IERC20(_currency)) {
+        else if (request.tokenOut == IERC20(_security) /*|| request.tokenIn == IERC20(_currency)*/) {
             (orderRef, , ) = _orderbook.newOrder(request, params);//, IOrder.Order.Buy);
         }
         else {

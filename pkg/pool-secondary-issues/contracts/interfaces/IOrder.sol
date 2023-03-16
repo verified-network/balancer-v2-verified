@@ -15,8 +15,8 @@ interface IOrder {
     enum Order{ Buy, Sell } 
 
     struct order{
-        //IVault.SwapKind swapKind; 
-        address tokenIn;
+        IVault.SwapKind swapKind;
+        //address tokenIn;
         //address tokenOut;
         OrderType otype;
         //Order order;
