@@ -15,7 +15,7 @@ import "@balancer-labs/v2-solidity-utils/contracts/math/Math.sol";
 import "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
 import "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/Ownable.sol";
 import "@balancer-labs/v2-interfaces/contracts/vault/IPoolSwapStructs.sol";
-
+import "hardhat/console.sol";
 contract Orderbook is IOrder, ITrade, Ownable, Heap{
     using FixedPoint for uint256;
 
@@ -148,8 +148,8 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         uint256 index;
         //if(_orders[_ref].order == IOrder.Order.Sell){
         if(_orders[_ref].swapKind==IVault.SwapKind.GIVEN_IN){
-            for (uint256 i = _orderbook.length; i==0; i--){
-                if(_orderbook[i].value == 0) continue;
+            for (uint256 i = 0; i < _orderbook.length; i++){
+                // if(_orderbook[i].value == 0) continue;
                 //if (_orders[_orderbook[i].ref].order == IOrder.Order.Buy && (_orders[_orderbook[i].ref].price >= _orders[_ref].price || _orders[_ref].price==0)){
                 if (_orders[_orderbook[i].ref].price >= _orders[_ref].price || _orders[_ref].price==0){
                     _marketOrders[index] = _orderbook[i].ref;
@@ -158,9 +158,11 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                         volume = Math.add(volume, _orders[_orderbook[i].ref].qty);
                     //}
                     if(_trade!=IOrder.OrderType.Market && _orderbook[i].ref!=_ref){
+                        index = index + 1;
+                        console.log("Here insde", index);
                     //only if the consecutive order is a limit order, it goes to the market order book
-                        _marketOrders[index++] = _ref;
-                    }  
+                        _marketOrders[index] = _ref;
+                    } 
                     //if(_orders[_ref].tokenIn == _security && _orders[_ref].swapKind == IVault.SwapKind.GIVEN_IN){
                         //if it is a sell order, ie, security in
                         if(volume >= _orders[_ref].qty)
@@ -170,12 +172,13 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                     index++;                    
                 } 
             }
+            
             return (volume, _marketOrders);
         }
         //else if(_orders[_ref].order == IOrder.Order.Buy){
         else if(_orders[_ref].swapKind==IVault.SwapKind.GIVEN_OUT){
-            for (uint256 i = 0; i < _orderbook.length; i++){
-                if(_orderbook[i].value == 0) continue;
+            for (uint256 i = _orderbook.length-2 ; i>=0; i--){
+                // if(_orderbook[i].value == 0) continue;
                 //if (_orders[_orderbook[i].ref].order == IOrder.Order.Sell && (_orders[_orderbook[i].ref].price <= _orders[_ref].price || _orders[_ref].price==0)){
                 if (_orders[_orderbook[i].ref].price <= _orders[_ref].price || _orders[_ref].price==0){
                     _marketOrders[index] = _orderbook[i].ref;
@@ -226,9 +229,12 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
             if(i==0)
                 return (ref, block.timestamp, 0);
         }
+        console.log("volume value", i);
         //if market depth exists, then fill order at one or more price points in the order book
         for(i=0; i<_marketOrders.length; i++){
             if (_order.qty == 0) break; //temporary condition to avoid unnesscary looping for consecutive limit orders
+            console.log("For loop");
+            console.logBytes32(_marketOrders[i]);
             if (
                 _marketOrders[i] != ref && //orders can not be matched with themselves
                 _orders[_marketOrders[i]].party != _order.party && //orders posted by a party can not be matched by a counter offer by the same party
@@ -252,6 +258,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                     }
                 }
             }
+            // console.logBytes32(bestBid);
             //if (_order.order == IOrder.Order.Sell) {             
                 if (bestBid != "") {
                     //if(_order.tokenIn==_security && _order.swapKind==IVault.SwapKind.GIVEN_IN){
@@ -262,6 +269,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                         if (/*_orders[bestBid].tokenOut==_security &&*/ _orders[bestBid].swapKind==IVault.SwapKind.GIVEN_OUT){
                             securityTraded = _orders[bestBid].qty; // amount of security brought (tokenOut) is already there 
                         }
+                        console.log("Here ", securityTraded,_order.qty);
                         if(securityTraded >= _order.qty){
                             securityTraded = _order.qty;
                             currencyTraded = _order.qty.mulDown(bestPrice);
@@ -276,6 +284,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                             else{
                                 _orders[bestBid].status = IOrder.OrderStatus.PartlyFilled;
                             }
+                            console.log("Sell",securityTraded,currencyTraded);
                             _order.status = IOrder.OrderStatus.Filled;  
                             bidIndex = reportTrade(ref, bestBid, /*bestPrice,*/ securityTraded, currencyTraded);
                             if(_order.otype == IOrder.OrderType.Market){
@@ -289,8 +298,11 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                             _orders[bestBid].qty = 0;
                             _orders[bestBid].status = IOrder.OrderStatus.Filled;
                             _order.status = IOrder.OrderStatus.PartlyFilled;
+                            console.log("Else",securityTraded, currencyTraded);
                             reportTrade(ref, bestBid, /*bestPrice,*/ securityTraded, currencyTraded);
+                            console.log("After report",bidIndex);
                             deleteOrder(bidIndex); //bid order ref is removed from market order list as its qty becomes zero
+                            console.log("After delete");
                         }
                     }
                     /*else if(_order.tokenOut==_currency && _order.swapKind==IVault.SwapKind.GIVEN_OUT){
@@ -381,6 +393,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                         if(/*_orders[bestOffer].tokenIn==_security &&*/ _orders[bestOffer].swapKind==IVault.SwapKind.GIVEN_IN){
                             securityTraded = _orders[bestOffer].qty; // amount of security sent in (tokenIn) is already there
                         }
+                        console.log("securityTraded",securityTraded, _order.qty);
                         if(securityTraded >= _order.qty){
                             securityTraded = _order.qty;
                             currencyTraded = _order.qty.mulDown(bestPrice);
@@ -396,6 +409,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                                 _orders[bestOffer].status = IOrder.OrderStatus.PartlyFilled;
                             }
                             _order.status = IOrder.OrderStatus.Filled;  
+                            console.log("ST",securityTraded, currencyTraded);
                             bidIndex = reportTrade(ref, bestOffer, securityTraded, currencyTraded);
                             if(_order.otype == IOrder.OrderType.Market){
                                 uint256 traded = calcTraded(ref, _order.party, true); 

@@ -3,7 +3,7 @@ pragma solidity ^0.7.0;
 pragma experimental ABIEncoderV2;
 
 import "@balancer-labs/v2-solidity-utils/contracts/math/Math.sol";
-
+import "hardhat/console.sol";
 abstract contract Heap {
     
     struct Node {
@@ -21,11 +21,10 @@ abstract contract Heap {
 
         // Start at the end of the array
         uint256 currentIndex = Math.sub(_orderbook.length, 1);
-
         // Bubble up the value until it reaches it's correct place (i.e. it is smaller than it's parent)
         while (
             currentIndex > 0 &&
-            _orderbook[Math.div(Math.sub(currentIndex, 0), 2, false)].value < _orderbook[currentIndex].value
+            _orderbook[Math.div(currentIndex, 2, false)].value < _orderbook[currentIndex].value
         ) {
             // If the parent value is lower than our current value, we swap them
             Node memory temp = _orderbook[Math.div(currentIndex, 2, false)];

@@ -19,7 +19,7 @@ import "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
 import "@balancer-labs/v2-interfaces/contracts/pool-secondary/SecondaryPoolUserData.sol";
 import "@balancer-labs/v2-interfaces/contracts/vault/IGeneralPool.sol";
 import "@balancer-labs/v2-interfaces/contracts/solidity-utils/helpers/BalancerErrors.sol";
-
+import "hardhat/console.sol";
 contract SecondaryIssuePool is BasePool, IGeneralPool {
     using SecondaryPoolUserData for bytes;
     using SafeERC20 for IERC20;
@@ -226,9 +226,11 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
 
             //we are placing only market orders using onSwap() now and using it to settle limit orders
             if (/*request.tokenOut == IERC20(_currency) ||*/ request.tokenIn == IERC20(_security)) {
+                console.log("Sell");
                 (tradeRef, tp, amount) = _orderbook.newOrder(request, params);//, IOrder.Order.Sell);
             } 
             else if (request.tokenOut == IERC20(_security) /*|| request.tokenIn == IERC20(_currency)*/) {
+                console.log("BUY");
                 (tradeRef, tp, amount) = _orderbook.newOrder(request, params);//, IOrder.Order.Buy);
             }
             else{
