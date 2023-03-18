@@ -19,6 +19,7 @@ interface IOrder {
         OrderType otype;
         OrderStatus status;
         address party;
+        uint256 qty;
     }
 
     struct Params {
@@ -34,14 +35,8 @@ interface IOrder {
 
     function getOrderRef() external view returns(bytes32[] memory);
 
-    function cancelOrder(bytes32 ref) external;
-
-    function editOrder( bytes32 ref,
-                        uint256 _price,
-                        uint256 _qty) external;    
-
     function orderFilled(bytes32 partyRef, bytes32 counterpartyRef, uint256 executionDate) external;
 
-    function revertTrade(bytes32 _orderRef, uint256 _qty, uint256 executionDate) external;
+    function revertTrade(bytes32 _orderRef) external;
     
 }
