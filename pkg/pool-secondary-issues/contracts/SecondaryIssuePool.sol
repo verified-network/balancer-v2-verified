@@ -212,6 +212,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 tradeToReport.securityTraded = _downscaleDown(tradeToReport.securityTraded, _scalingFactorSecurity);
                 tradeToReport.currencyTraded = _downscaleDown(tradeToReport.currencyTraded, _scalingFactorCurrency);
                 //ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
+                // The amount given is for token out, the amount calculated is for token in
                 return _downscaleUp(amount, scalingFactors[indexIn]);
             }
             else if(bytes(otype).length==32 && tp==0){
@@ -220,26 +221,27 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                         && request.tokenIn == IERC20(this) && request.kind==IVault.SwapKind.GIVEN_OUT) {
                     amount = _orderbook.cancelOrder(StringUtils.stringToBytes32(otype));
                     require(amount==request.amount, "Insufficient BPT swapped in");
+                    // The amount given is for token out, the amount calculated is for token in
                     return _downscaleUp(amount, scalingFactors[indexIn]);
                 } 
                 else
                     _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
             }
-            else if(bytes(otype).length==4 && tp!=0){
+            else if(bytes(otype).length==32 && tp!=0){
                 //edit order with otype having order reference
                 if (request.tokenIn == IERC20(this) && request.kind==IVault.SwapKind.GIVEN_OUT) {
-                    //request amount is less than original amount, so additional BPT is paid in
+                    //request amount (security, currency) is less than original amount, so some BPT is returned to the pool
                     amount = Math.sub(_orderbook.editOrder(StringUtils.stringToBytes32(otype)), request.amount);
-                    emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), amount, tp, block.timestamp, StringUtils.stringToBytes32(otype));
-                    //security or currency tokens are paid out for bpt paid in
+                    emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, tp, block.timestamp, StringUtils.stringToBytes32(otype));
+                    //security or currency tokens are paid out for bpt to be paid in
                     return _downscaleUp(amount, scalingFactors[indexIn]);
                 } 
                 else if (request.tokenOut == IERC20(this) && request.kind==IVault.SwapKind.GIVEN_IN) {
-                    //request amount is more than original amount, so additional BPT is paid out
+                    //request amount (security, currency) is more than original amount, so additional BPT is paid out from the pool
                     amount = Math.sub(request.amount, _orderbook.editOrder(StringUtils.stringToBytes32(otype)));
                     if(balances[_bptIndex] > amount){
                         balances[_bptIndex] = Math.sub(balances[_bptIndex], amount);
-                        emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), amount, tp, block.timestamp, StringUtils.stringToBytes32(otype));
+                        emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, tp, block.timestamp, StringUtils.stringToBytes32(otype));
                         // bpt tokens equivalent to amount requested adjusted to existing amount are exiting the Pool, so we round down.
                         return _downscaleDown(amount, scalingFactors[indexOut]);  
                     }       
