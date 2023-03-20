@@ -75,15 +75,21 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
             party: _request.from,
             price: _params.price
         });
-        _orders[ref] = nOrder;
-        insert(_params.price, ref);
-        if (_params.trade == IOrder.OrderType.Market) {            
+        _orders[ref] = nOrder;        
+        if (_params.trade == IOrder.OrderType.Market) {                   
             return matchOrders(ref, nOrder, IOrder.OrderType.Market);
-        } else if (_params.trade == IOrder.OrderType.Limit) {            
+        } else if (_params.trade == IOrder.OrderType.Limit) {    
+            if(nOrder.tokenIn==_security)
+                //sell order
+                insertSellOrder(_params.price, ref);    
+            else if(nOrder.tokenIn==_currency)
+                //buy order
+                insertBuyOrder(_params.price, ref);
             return matchOrders(ref, nOrder, IOrder.OrderType.Limit);
         } 
     }
 
+    /* //remove this function using unbounded for loop, use the subgraph instead
     function getOrderRef() external view override returns (bytes32[] memory) {
         bytes32[] memory refs = new bytes32[](_orderbook.length);
         uint256 i;
@@ -94,8 +100,9 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
             }
         }
         return refs;
-    }
+    }*/
 
+    //to do : adjust price in orderbook
     function editOrder(
         bytes32 ref,
         uint256 _price,
@@ -114,10 +121,11 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         require (_orders[ref].otype != IOrder.OrderType.Market, "Market order can not be cancelled");
         require(_orders[ref].status == IOrder.OrderStatus.Open, "Order is already filled");
         require(_orders[ref].party == msg.sender, "Sender is not order creator");
+        /* // to do : remove element from orderbook
         for(uint256 i=0; i<_orderbook.length; i++){
             if(_orderbook[i].ref==ref)
                 deleteOrder(i);
-        }
+        }*/
         uint256 qty = _orders[ref].qty;
         delete _orders[ref];
         return qty;
@@ -125,16 +133,23 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
 
     //check if a buy order in the limit order book can execute over the prevailing (low) price passed to the function
     //check if a sell order in the limit order book can execute under the prevailing (high) price passed to the function
-    function checkLimitOrders(bytes32 _ref, IOrder.OrderType _trade) private view returns (uint256, bytes32[] memory){
+    function checkLimitOrders(bytes32 _ref, IOrder.OrderType _trade) private returns (uint256, bytes32[] memory){
         uint256 volume;
-        bytes32[] memory _marketOrders = new bytes32[](_orderbook.length);
+        bytes32[] memory _marketOrders;
+        if(_orders[_ref].tokenIn==_security)
+            //sell order, sellers want the buy orderbook
+            _marketOrders = new bytes32[](_buyOrderbook.length);
+        else
+            //buy order, buyers want the sell orderbook
+            _marketOrders = new bytes32[](_sellOrderbook.length);
         uint256 index;
         if(_orders[_ref].tokenIn==_security){
-            for (uint256 i = _orderbook.length; i>=0; i--){
-                if (_orders[_orderbook[i].ref].price >= _orders[_ref].price || _orders[_ref].price==0){
-                    _marketOrders[index] = _orderbook[i].ref;
-                    volume = Math.add(volume, _orders[_orderbook[i].ref].qty);
-                    if(_trade!=IOrder.OrderType.Market && _orderbook[i].ref!=_ref){
+            for (uint256 i = _buyOrderbook.length; i>=0; i--){
+                if (getBestBuyPrice() >= _orders[_ref].price || _orders[_ref].price==0){
+                    //since this is a sell order, counter offers must offer a better price
+                    _marketOrders[index] = removeBuyOrder();
+                    volume = Math.add(volume, _orders[_marketOrders[index]].qty);
+                    if(_trade!=IOrder.OrderType.Market && _marketOrders[index]!=_ref){
                         //only if the consecutive order is a limit order, it goes to the market order book
                         _marketOrders[++index] = _ref;
                     } 
@@ -148,11 +163,12 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
             return (volume, _marketOrders);
         }
         else if(_orders[_ref].tokenIn==_currency){
-            for (uint256 i=0 ; i<_orderbook.length; i++){
-                if (_orders[_orderbook[i].ref].price <= _orders[_ref].price || _orders[_ref].price==0){
-                    _marketOrders[index] = _orderbook[i].ref;
-                    volume = Math.add(volume, _orders[_orderbook[i].ref].price.mulDown(_orders[_orderbook[i].ref].qty));
-                    if(_trade!=IOrder.OrderType.Market && _orderbook[i].ref!=_ref){
+            for (uint256 i=0 ; i<_sellOrderbook.length; i++){
+                if (getBestSellPrice() <= _orders[_ref].price || _orders[_ref].price==0){
+                    //since this is a buy order, counter offers to sell must be for lesser price 
+                    _marketOrders[index] = removeSellOrder();
+                    volume = Math.add(volume, _orders[_marketOrders[index]].price.mulDown(_orders[_marketOrders[index]].qty));
+                    if(_trade!=IOrder.OrderType.Market && _marketOrders[index]!=_ref){
                         //only if the consecutive order is a limit order, it goes to the market order book
                         _marketOrders[++index] = _ref;
                     }  
@@ -167,6 +183,15 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         }  
     }
 
+    function reinsertOrders(bytes32[] memory _marketOrders) private {
+        for(uint256 i=0; i<_marketOrders.length; i++){
+            if(_orders[_marketOrders[i]].tokenIn==_security)
+                insertSellOrder(_orders[_marketOrders[i]].price, _marketOrders[i]);
+            else if(_orders[_marketOrders[i]].tokenIn==_currency)
+                insertBuyOrder(_orders[_marketOrders[i]].price, _marketOrders[i]);
+        }
+    }
+
     //match market orders. Sellers get the best price (highest bid) they can sell at.
     //Buyers get the best price (lowest offer) they can buy at.
     function matchOrders(bytes32 ref, IOrder.order memory _order, IOrder.OrderType _trade) private returns (bytes32, uint256, uint256){
@@ -177,17 +202,24 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         uint256 securityTraded;
         uint256 currencyTraded;
         uint256 i;
-        bytes32[] memory _marketOrders = new bytes32[](_orderbook.length);
+        bytes32[] memory _marketOrders;
+        if(_order.tokenIn==_security)
+            _marketOrders = new bytes32[](_buyOrderbook.length);
+        else
+            _marketOrders = new bytes32[](_sellOrderbook.length);
 
         //check if enough market volume exist to fulfil market orders, or if market depth is zero
         (i, _marketOrders) = checkLimitOrders(ref, _trade);
         if(_trade==IOrder.OrderType.Market){
-            if(i < _order.qty)
+            if(i < _order.qty){
+                reinsertOrders(_marketOrders);
                 return (ref, block.timestamp, 0);
+            }
         }
         else if(_trade==IOrder.OrderType.Limit){
-            if(i==0)
+            if(i==0){
                 return (ref, block.timestamp, 0);
+            }
         }
         //if market depth exists, then fill order at one or more price points in the order book
         for(i=0; i<_marketOrders.length; i++){
@@ -215,18 +247,16 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
             }
             if (bestBid != "") {
                 if(_order.tokenIn==_security){
-                    if(_orders[bestBid].tokenIn==_currency)
-                        securityTraded = _orders[bestBid].qty.divDown(bestPrice); // calculating amount of security that can be brought
+                    securityTraded = _orders[bestBid].qty.divDown(bestPrice); // calculating amount of security that can be brought
                     if(securityTraded >= _order.qty){
                         securityTraded = _order.qty;
                         currencyTraded = _order.qty.mulDown(bestPrice);
-                        _orders[bestBid].qty = _orders[bestBid].tokenIn == _currency ?
-                                                Math.sub(_orders[bestBid].qty, _order.qty) : Math.sub(_orders[bestBid].qty, currencyTraded);
+                        _orders[bestBid].qty = Math.sub(_orders[bestBid].qty, _order.qty);
                         _order.qty = 0;
                         if(_orders[bestBid].qty == 0)
                         {
                             _orders[bestBid].status = IOrder.OrderStatus.Filled;
-                            deleteOrder(bidIndex);
+                            //deleteOrder(bidIndex); //not required since we have already removed element from heap
                         }
                         else{
                             _orders[bestBid].status = IOrder.OrderStatus.PartlyFilled;
@@ -245,24 +275,22 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                         _orders[bestBid].status = IOrder.OrderStatus.Filled;
                         _order.status = IOrder.OrderStatus.PartlyFilled;
                         reportTrade(ref, bestBid, securityTraded, currencyTraded);
-                        deleteOrder(bidIndex); //bid order ref is removed from market order list as its qty becomes zero
+                        //deleteOrder(bidIndex); //not required since we have already removed element from heap
                     }
                 }
             }
             else if (bestOffer != "") {
                 if(_order.tokenIn==_currency){
-                    if(_orders[bestOffer].tokenIn==_security)
-                        currencyTraded = _orders[bestOffer].qty.mulDown(bestPrice); // calculating amount of currency that can taken out    
+                    currencyTraded = _orders[bestOffer].qty.mulDown(bestPrice); // calculating amount of currency that can taken out    
                     if(currencyTraded >= _order.qty){
                         currencyTraded = _order.qty;
                         securityTraded = _order.qty.divDown(bestPrice);
-                        _orders[bestOffer].qty = _orders[bestOffer].tokenIn == _security ? 
-                                                Math.sub(_orders[bestOffer].qty, _order.qty) : Math.sub(_orders[bestOffer].qty, securityTraded);
+                        _orders[bestOffer].qty = Math.sub(_orders[bestOffer].qty, _order.qty);
                         _order.qty = 0;
                         if(_orders[bestOffer].qty == 0)
                         {
                             _orders[bestOffer].status = IOrder.OrderStatus.Filled;
-                            deleteOrder(bidIndex);
+                            //deleteOrder(bidIndex); //not required since we have already removed element from heap
                         }
                         else{
                             _orders[bestOffer].status = IOrder.OrderStatus.PartlyFilled;
@@ -281,7 +309,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                         _orders[bestOffer].status = IOrder.OrderStatus.Filled;
                         _order.status = IOrder.OrderStatus.PartlyFilled;    
                         reportTrade(ref, bestOffer, securityTraded, currencyTraded);                    
-                        deleteOrder(bidIndex); //bid order ref is removed from market order list as its qty becomes zero
+                        //deleteOrder(bidIndex); //not required since we have already removed element from heap
                     }                    
                 }
             }
@@ -353,7 +381,12 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         _orders[_orderRef].status = OrderStatus.Open;
         //push to order book
         if (_orders[_orderRef].otype == IOrder.OrderType.Limit) {
-            insert(_orders[_orderRef].price, _orderRef);
+            if(_orders[_orderRef].tokenIn==_security)
+                //sell order
+                insertSellOrder(_orders[_orderRef].price, _orderRef);    
+            else if(_orders[_orderRef].tokenIn==_currency)
+                //buy order
+                insertBuyOrder(_orders[_orderRef].price, _orderRef);
         } 
     }
 

@@ -94,6 +94,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         _security = security;
         _currency = currency;
         _vault = vault;
+        
         // Set token indexes
         (uint256 securityIndex, uint256 currencyIndex, uint256 bptIndex) = _getSortedTokenIndexes(
             IERC20(security),
@@ -161,6 +162,8 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
             require(balances[_currencyIndex]>=request.amount, "Insufficient currency balance");
         else if(request.tokenIn==IERC20(_security) && request.kind==IVault.SwapKind.GIVEN_IN)
             require(balances[_securityIndex]>=request.amount, "Insufficient security balance");
+        else if(request.tokenIn==IERC20(this) && request.kind==IVault.SwapKind.GIVEN_IN)
+            require(balances[_bptIndex]>=request.amount, "Insufficient pool token balance");
 
         if(request.userData.length!=0){
             (otype, tp) = abi.decode(request.userData, (string, uint256));  
@@ -172,11 +175,11 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 
                 if(request.tokenOut==IERC20(_security) && request.kind==IVault.SwapKind.GIVEN_OUT){
                     amount = tradeToReport.currencyTraded;
-                    require(tradeToReport.currencyTraded==request.amount, "Insufficient BPT swapped in for security");
+                    require(tradeToReport.currencyTraded==request.amount, "Insufficient pool tokens swapped in for security");
                 }
                 else if(request.tokenOut==IERC20(_currency) && request.kind==IVault.SwapKind.GIVEN_OUT){
                     amount = tradeToReport.securityTraded;
-                    require(tradeToReport.securityTraded==request.amount, "Insufficient BPT swapped in for currency");
+                    require(tradeToReport.securityTraded==request.amount, "Insufficient pool tokens swapped in for currency");
                 }
                 else
                     _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
@@ -214,7 +217,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 if ((request.tokenOut == IERC20(_security) || request.tokenOut == IERC20(_currency)) 
                         && request.tokenIn == IERC20(this) && request.kind==IVault.SwapKind.GIVEN_OUT) {
                     amount = _orderbook.cancelOrder(StringUtils.stringToBytes32(otype));
-                    require(amount==request.amount, "Insufficient BPT swapped in");
+                    require(amount==request.amount, "Insufficient pool tokens swapped in");
                     // The amount given is for token out, the amount calculated is for token in
                     return _downscaleUp(amount, scalingFactors[indexIn]);
                 } 
