@@ -36,6 +36,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
     uint256 private constant _TOTAL_TOKENS = 3; //Security token, Currency token (ie, paired token), Balancer pool token
 
     uint256 private constant _INITIAL_BPT_SUPPLY = 2**(112) - 1;
+    uint256 private constant _DEFAULT_MINIMUM_BPT = 1e6;
 
     uint256 private immutable _scalingFactorSecurity;
     uint256 private immutable _scalingFactorCurrency;
@@ -212,8 +213,8 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 // The amount given is for token out, the amount calculated is for token in
                 return _downscaleUp(amount, scalingFactors[indexIn]);
             }
-            else if(bytes(otype).length==32 && tp==0){
-                //cancel order with otype having order reference
+            else if(bytes(otype).length==14 && tp==0){
+                //cancel order with otype having orderReference
                 if ((request.tokenOut == IERC20(_security) || request.tokenOut == IERC20(_currency)) 
                         && request.tokenIn == IERC20(this) && request.kind==IVault.SwapKind.GIVEN_OUT) {
                     amount = _orderbook.cancelOrder(StringUtils.stringToBytes32(otype));
@@ -224,8 +225,8 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 else
                     _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
             }
-            else if(bytes(otype).length==32 && tp!=0){
-                //edit order with otype having order reference
+            else if(bytes(otype).length==14 && tp!=0){
+                //edit order with otype having orderReference
                 if (request.tokenIn == IERC20(this) && request.kind==IVault.SwapKind.GIVEN_OUT) {
                     //request amount (security, currency) is less than original amount, so some BPT is returned to the pool
                     amount = _orderbook.editOrder(StringUtils.stringToBytes32(otype), tp, request.amount);
@@ -343,10 +344,8 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
 
         uint256[] memory amountsIn = userData.joinKind();
         amountsIn[_currencyIndex] = _upscale(amountsIn[_currencyIndex], _scalingFactorCurrency);
-        amountsIn[_securityIndex] = _upscale(amountsIn[_securityIndex], _scalingFactorSecurity);
-        uint256 bptAmountOut = amountsIn[_currencyIndex] + amountsIn[_securityIndex];
-        amountsIn[_bptIndex] = Math.sub(_INITIAL_BPT_SUPPLY, bptAmountOut);
-
+        uint256 bptAmountOut = _INITIAL_BPT_SUPPLY;
+        amountsIn[_bptIndex] = Math.sub(_INITIAL_BPT_SUPPLY, _DEFAULT_MINIMUM_BPT);
         return (bptAmountOut, amountsIn);
     }
 
@@ -373,7 +372,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         uint256,
         uint256[] memory,
         bytes memory userData
-    ) internal view override returns (uint256 bptAmountIn, uint256[] memory amountsOut) {
+    ) internal pure override returns (uint256 bptAmountIn, uint256[] memory amountsOut) {
         SecondaryPoolUserData.ExitKind kind = userData.exitKind();
         if (kind != SecondaryPoolUserData.ExitKind.EXACT_BPT_IN_FOR_TOKENS_OUT) {
             //usually exit pool reverts
@@ -385,15 +384,13 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
 
     function _exit(uint256[] memory balances, bytes memory userData)
         private
-        view
+        pure
         returns (uint256, uint256[] memory)
     {   
         uint256 bptAmountIn = userData.exactBptInForTokensOut();
         uint256[] memory amountsOut = new uint256[](balances.length);
         for (uint256 i = 0; i < balances.length; i++) {
-            if (i == _currencyIndex || i == _securityIndex) {
                 amountsOut[i] = balances[i];
-            }
         }
 
         return (bptAmountIn, amountsOut);
@@ -413,7 +410,11 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         }
         else if(token == IERC20(_currency)){
             return _scalingFactorCurrency;
-        } else {
+        }
+        else if(token == this){
+            return FixedPoint.ONE;
+        }
+         else {
             _revert(Errors.INVALID_TOKEN);
         }
     }
