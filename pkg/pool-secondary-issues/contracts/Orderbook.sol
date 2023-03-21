@@ -144,21 +144,23 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
             _marketOrders = new bytes32[](_sellOrderbook.length);
         uint256 index;
         if(_orders[_ref].tokenIn==_security){
-            for (uint256 i = _buyOrderbook.length; i>=0; i--){
+            for (uint256 i=0; i<_buyOrderbook.length; i++){
                 if (getBestBuyPrice() >= _orders[_ref].price || _orders[_ref].price==0){
                     //since this is a sell order, counter offers must offer a better price
                     _marketOrders[index] = removeBuyOrder();
                     volume = Math.add(volume, _orders[_marketOrders[index]].qty);
-                    if(_trade!=IOrder.OrderType.Market && _marketOrders[index]!=_ref){
+                    /*if(_trade!=IOrder.OrderType.Market && _marketOrders[index]!=_ref){
                         //only if the consecutive order is a limit order, it goes to the market order book
                         _marketOrders[++index] = _ref;
-                    } 
+                    }*/ 
                     //if it is a sell order, ie, security in
                     if(volume >= _orders[_ref].qty)
                         //if available market depth exceeds qty to trade, exit and avoid unnecessary lookup through orderbook  
                         return (volume, _marketOrders); 
                     index++;                    
                 } 
+                else //no more better counteroffers in the sorted orderbook, so no need to traverse it unnecessarily
+                    break;
             }
             return (volume, _marketOrders);
         }
@@ -168,16 +170,18 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                     //since this is a buy order, counter offers to sell must be for lesser price 
                     _marketOrders[index] = removeSellOrder();
                     volume = Math.add(volume, _orders[_marketOrders[index]].price.mulDown(_orders[_marketOrders[index]].qty));
-                    if(_trade!=IOrder.OrderType.Market && _marketOrders[index]!=_ref){
+                    /*if(_trade!=IOrder.OrderType.Market && _marketOrders[index]!=_ref){
                         //only if the consecutive order is a limit order, it goes to the market order book
                         _marketOrders[++index] = _ref;
-                    }  
+                    }*/  
                     //if it is a buy order, ie, currency in
                     if(volume >= _orders[_ref].qty)
                         //if available market depth exceeds qty to trade, exit and avoid unnecessary lookup through orderbook  
                         return (volume, _marketOrders); 
                     index++;                    
                 } 
+                else //no more better counteroffers in the sorted orderbook, so no need to traverse it unnecessarily
+                    break;
             }
             return (volume, _marketOrders);
         }  
