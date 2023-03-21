@@ -21,7 +21,7 @@ import "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
 import "@balancer-labs/v2-interfaces/contracts/pool-secondary/SecondaryPoolUserData.sol";
 import "@balancer-labs/v2-interfaces/contracts/vault/IGeneralPool.sol";
 import "@balancer-labs/v2-interfaces/contracts/solidity-utils/helpers/BalancerErrors.sol";
-
+import "hardhat/console.sol";
 contract SecondaryIssuePool is BasePool, IGeneralPool {
     using SecondaryPoolUserData for bytes;
     using SafeERC20 for IERC20;
@@ -174,13 +174,13 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                                             ? tradeToReport.partyRef : tradeToReport.counterpartyRef)
                                             .tokenIn==_security ? bytes32("security") : bytes32("currency");                
                 
-                if(request.tokenOut==IERC20(_security) && request.kind==IVault.SwapKind.GIVEN_OUT){
-                    amount = tradeToReport.currencyTraded;
-                    require(tradeToReport.currencyTraded==request.amount, "Insufficient pool tokens swapped in for security");
-                }
-                else if(request.tokenOut==IERC20(_currency) && request.kind==IVault.SwapKind.GIVEN_OUT){
+                if(request.tokenOut==IERC20(_security) && request.kind==IVault.SwapKind.GIVEN_IN){
                     amount = tradeToReport.securityTraded;
-                    require(tradeToReport.securityTraded==request.amount, "Insufficient pool tokens swapped in for currency");
+                    // require(tradeToReport.currencyTraded==request.amount, "Insufficient pool tokens swapped in for security");
+                }
+                else if(request.tokenOut==IERC20(_currency) && request.kind==IVault.SwapKind.GIVEN_IN){
+                    amount = tradeToReport.currencyTraded;
+                    // require(tradeToReport.securityTraded==request.amount, "Insufficient pool tokens swapped in for currency");
                 }
                 else
                     _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
@@ -211,7 +211,13 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 //ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
                 _orderbook.removeTrade(request.from, tp);
                 // The amount given is for token out, the amount calculated is for token in
-                return _downscaleUp(amount, scalingFactors[indexIn]);
+
+                if (request.tokenOut==IERC20(_currency)) {
+                    return _downscaleDown(amount, scalingFactors[indexOut]);
+                }
+                else if (request.tokenOut==IERC20(_security)) {
+                    return amount;
+                }
             }
             else if(bytes(otype).length==14 && tp==0){
                 //cancel order with otype having orderReference
@@ -273,6 +279,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         if(params.trade == IOrder.OrderType.Market){
             
             if (request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
+                // console.log("Inside market");
                 (ref, tp, amount) = _orderbook.newOrder(request, params);
             } 
             else{
@@ -281,7 +288,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
 
             require(amount!=0, "Insufficient liquidity");
             emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, params.price, tp, ref);
-
+            // console.log("Amount tr", amount);
             /*bytes32 orderType;
             uint256 price;
             if(request.tokenIn == IERC20(_security)){
@@ -306,6 +313,11 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
             if(request.kind == IVault.SwapKind.GIVEN_IN){
                 if (request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
                     return _downscaleDown(amount, scalingFactors[indexOut]);
+                }
+            }
+            else if(request.kind == IVault.SwapKind.GIVEN_OUT){
+                if (request.tokenOut == IERC20(_security) || request.tokenOut == IERC20(_currency)) {
+                    return _downscaleDown(amount, scalingFactors[indexIn]);
                 }
             }
         }

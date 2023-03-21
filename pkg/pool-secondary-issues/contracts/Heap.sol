@@ -3,7 +3,7 @@ pragma solidity ^0.7.0;
 pragma experimental ABIEncoderV2;
 
 import "@balancer-labs/v2-solidity-utils/contracts/math/Math.sol";
-
+import "hardhat/console.sol";
 abstract contract Heap {
     
     struct Node {
@@ -88,7 +88,7 @@ abstract contract Heap {
 
         // Bubble down
         //when we need to find the max buy price for a new sell order
-        bubbleDownForMax(currentIndex);
+        // bubbleDownForMax(currentIndex);
 
         // finally, return the top of the heap
         return toReturn;
@@ -105,7 +105,6 @@ abstract contract Heap {
 
         // Takes the last element of the array and put it at the root
         _sellOrderbook[0] = _sellOrderbook[Math.sub(_sellOrderbook.length, 1)];
-
         // Delete the last element from the array
         _sellOrderbook.pop();
 
@@ -114,7 +113,7 @@ abstract contract Heap {
 
         // Bubble down
         //when we need to find the min sell price for a new buy order
-        bubbleDownForMin(currentIndex);
+        // bubbleDownForMin(currentIndex);
         
         // finally, return the top of the heap
         return toReturn;
@@ -151,6 +150,7 @@ abstract contract Heap {
     }
 
     function bubbleDownForMin(uint256 currentIndex) private {
+        console.log("_sellOrderbook.length",_sellOrderbook.length);
         while (Math.mul(currentIndex, 2) < Math.sub(_sellOrderbook.length, 1)) {
             // get the current index of the children
             uint256 j = Math.mul(currentIndex, 2);

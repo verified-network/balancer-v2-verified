@@ -15,7 +15,7 @@ import "@balancer-labs/v2-solidity-utils/contracts/math/Math.sol";
 import "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
 import "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/Ownable.sol";
 import "@balancer-labs/v2-interfaces/contracts/vault/IPoolSwapStructs.sol";
-
+// import "hardhat/console.sol";
 contract Orderbook is IOrder, ITrade, Ownable, Heap{
     using FixedPoint for uint256;
 
@@ -211,7 +211,6 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
             _marketOrders = new bytes32[](_buyOrderbook.length);
         else
             _marketOrders = new bytes32[](_sellOrderbook.length);
-
         //check if enough market volume exist to fulfil market orders, or if market depth is zero
         (i, _marketOrders) = checkLimitOrders(ref, _trade);
         if(_trade==IOrder.OrderType.Market){
@@ -250,13 +249,18 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                 }
             }
             if (bestBid != "") {
+                // console.log("vyuu");
                 if(_order.tokenIn==_security){
+                    // console.log("_orders[bestBid].qty",_orders[bestBid].qty);
+                    // console.log("bestPrice",bestPrice);
                     securityTraded = _orders[bestBid].qty.divDown(bestPrice); // calculating amount of security that can be brought
                     if(securityTraded >= _order.qty){
                         securityTraded = _order.qty;
                         currencyTraded = _order.qty.mulDown(bestPrice);
                         _orders[bestBid].qty = Math.sub(_orders[bestBid].qty, _order.qty);
                         _order.qty = 0;
+                        // console.log("securityTraded",securityTraded);
+                        // console.log("currencyTraded",currencyTraded);
                         if(_orders[bestBid].qty == 0)
                         {
                             _orders[bestBid].status = IOrder.OrderStatus.Filled;
@@ -287,8 +291,8 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                 if(_order.tokenIn==_currency){
                     currencyTraded = _orders[bestOffer].qty.mulDown(bestPrice); // calculating amount of currency that can taken out    
                     if(currencyTraded >= _order.qty){
-                        currencyTraded = _order.qty;
-                        securityTraded = _order.qty.divDown(bestPrice);
+                        currencyTraded = _order.qty.mulDown(bestPrice);
+                        securityTraded = _order.qty;
                         _orders[bestOffer].qty = Math.sub(_orders[bestOffer].qty, _order.qty);
                         _order.qty = 0;
                         if(_orders[bestOffer].qty == 0)
@@ -302,7 +306,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                         _order.status = IOrder.OrderStatus.Filled;  
                         bidIndex = reportTrade(ref, bestOffer, securityTraded, currencyTraded);
                         if(_order.otype == IOrder.OrderType.Market){
-                            uint256 traded = calcTraded(ref, _order.party, false); 
+                            uint256 traded = calcTraded(ref, _order.party, true); 
                             return (ref, bidIndex, traded);  
                         }  
                     }    
