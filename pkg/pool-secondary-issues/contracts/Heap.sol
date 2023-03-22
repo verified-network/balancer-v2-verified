@@ -82,15 +82,24 @@ abstract contract Heap {
 
         // Delete the last element from the array
         _buyOrderbook.pop();
-
+        for(uint i=0; i<_buyOrderbook.length;i++)
+        {
+            console.log(_buyOrderbook[i].value);
+        }
         // Start at the top
         uint256 currentIndex = 0;
 
         // Bubble down
         //when we need to find the max buy price for a new sell order
-        // bubbleDownForMax(currentIndex);
+        if(_buyOrderbook.length !=0)
+            bubbleDownForMax(currentIndex);
 
         // finally, return the top of the heap
+        console.log("After bubble down");
+        for(uint i=0; i<_buyOrderbook.length;i++)
+        {
+            console.log(_buyOrderbook[i].value);
+        }
         return toReturn;
     }
 
@@ -107,13 +116,13 @@ abstract contract Heap {
         _sellOrderbook[0] = _sellOrderbook[Math.sub(_sellOrderbook.length, 1)];
         // Delete the last element from the array
         _sellOrderbook.pop();
-
         // Start at the top
         uint256 currentIndex = 0;
 
         // Bubble down
         //when we need to find the min sell price for a new buy order
-        // bubbleDownForMin(currentIndex);
+        if(_sellOrderbook.length !=0)
+            bubbleDownForMin(currentIndex);
         
         // finally, return the top of the heap
         return toReturn;
@@ -150,7 +159,6 @@ abstract contract Heap {
     }
 
     function bubbleDownForMin(uint256 currentIndex) private {
-        console.log("_sellOrderbook.length",_sellOrderbook.length);
         while (Math.mul(currentIndex, 2) < Math.sub(_sellOrderbook.length, 1)) {
             // get the current index of the children
             uint256 j = Math.mul(currentIndex, 2);
