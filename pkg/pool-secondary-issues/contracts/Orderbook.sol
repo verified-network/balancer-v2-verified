@@ -89,7 +89,6 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         } 
     }
 
-    //to do : adjust price in orderbook
     function editOrder(
         bytes32 ref,
         uint256 _price,
@@ -99,6 +98,8 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         require(_orders[ref].status == IOrder.OrderStatus.Open, "Order is already filled");
         require(_orders[ref].party == msg.sender, "Sender is not order creator");
         _orders[ref].price = _price;
+        bool buy = _orders[ref].tokenIn==_security ? false : true;
+        editOrderbook(_price, ref, buy);
         uint256 qty = _orders[ref].qty;
         _orders[ref].qty = _qty;
         return qty;
@@ -108,11 +109,8 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         require (_orders[ref].otype != IOrder.OrderType.Market, "Market order can not be cancelled");
         require(_orders[ref].status == IOrder.OrderStatus.Open, "Order is already filled");
         require(_orders[ref].party == msg.sender, "Sender is not order creator");
-        /* // to do : remove element from orderbook
-        for(uint256 i=0; i<_orderbook.length; i++){
-            if(_orderbook[i].ref==ref)
-                deleteOrder(i);
-        }*/
+        bool buy = _orders[ref].tokenIn==_security ? false : true;
+        cancelOrderbook(ref, buy);
         uint256 qty = _orders[ref].qty;
         delete _orders[ref];
         return qty;

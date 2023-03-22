@@ -3,7 +3,7 @@ pragma solidity ^0.7.0;
 pragma experimental ABIEncoderV2;
 
 import "@balancer-labs/v2-solidity-utils/contracts/math/Math.sol";
-
+import "hardhat/console.sol";
 abstract contract Heap {
     
     struct Node {
@@ -12,7 +12,10 @@ abstract contract Heap {
     }
 
     Node[] _buyOrderbook;
+    mapping(bytes32 => uint256) private _buyIndex;
+
     Node[] _sellOrderbook;
+    mapping(bytes32 => uint256) private _sellIndex;
 
     // Inserts a buy order into heap
     // Buy orderbook needs to be a max heap as sellers want the best price
@@ -33,7 +36,9 @@ abstract contract Heap {
             // If the parent value is lower than our current value, we swap them
             Node memory temp = _buyOrderbook[parentIndex];
             _buyOrderbook[parentIndex] = _buyOrderbook[currentIndex];
+            _buyIndex[_buyOrderbook[currentIndex].ref] = parentIndex;
             _buyOrderbook[currentIndex] = temp;
+            _buyIndex[temp.ref] = currentIndex;
 
             // change our current Index to go up to the parent
             currentIndex = parentIndex;
@@ -60,7 +65,9 @@ abstract contract Heap {
             // If the parent value is larger than our current value, we swap them
             Node memory temp = _sellOrderbook[parentIndex];
             _sellOrderbook[parentIndex] = _sellOrderbook[currentIndex];
+            _sellIndex[_sellOrderbook[currentIndex].ref] = parentIndex;
             _sellOrderbook[currentIndex] = temp;
+            _sellIndex[temp.ref] = currentIndex;
 
             // change our current Index to go up to the parent
             currentIndex = parentIndex;
@@ -79,15 +86,17 @@ abstract contract Heap {
 
         // Takes the last element of the array and put it at the root
         _buyOrderbook[0] = _buyOrderbook[Math.sub(_buyOrderbook.length, 1)];
+        _buyIndex[_buyOrderbook[0].ref] = 0;
 
         // Delete the last element from the array
         _buyOrderbook.pop();
+
         // Start at the top
         uint256 currentIndex = 0;
 
         // Bubble down
         //when we need to find the max buy price for a new sell order
-        if(_buyOrderbook.length !=0)
+        if(_buyOrderbook.length > 0)
             bubbleDownForMax(currentIndex);
 
         // finally, return the top of the heap
@@ -105,14 +114,17 @@ abstract contract Heap {
 
         // Takes the last element of the array and put it at the root
         _sellOrderbook[0] = _sellOrderbook[Math.sub(_sellOrderbook.length, 1)];
+        _sellIndex[_sellOrderbook[0].ref] = 0;
+
         // Delete the last element from the array
         _sellOrderbook.pop();
+
         // Start at the top
         uint256 currentIndex = 0;
 
         // Bubble down
         //when we need to find the min sell price for a new buy order
-        if(_sellOrderbook.length !=0)
+        if(_sellOrderbook.length > 0)
             bubbleDownForMin(currentIndex);
         
         // finally, return the top of the heap
@@ -142,7 +154,9 @@ abstract contract Heap {
             // else swap the value
             Node memory tempOrder = _buyOrderbook[currentIndex];
             _buyOrderbook[currentIndex] = _buyOrderbook[j];
+            _buyIndex[_buyOrderbook[j].ref] = currentIndex;
             _buyOrderbook[j] = tempOrder;
+            _buyIndex[tempOrder.ref] = j;
 
             // and let's keep going down the heap
             currentIndex = j;
@@ -150,6 +164,7 @@ abstract contract Heap {
     }
 
     function bubbleDownForMin(uint256 currentIndex) private {
+        console.log("_sellOrderbook.length",_sellOrderbook.length);
         while (Math.mul(currentIndex, 2) < Math.sub(_sellOrderbook.length, 1)) {
             // get the current index of the children
             uint256 j = Math.mul(currentIndex, 2);
@@ -172,10 +187,46 @@ abstract contract Heap {
             // else swap the value
             Node memory tempOrder = _sellOrderbook[currentIndex];
             _sellOrderbook[currentIndex] = _sellOrderbook[j];
+            _sellIndex[_sellOrderbook[j].ref] = currentIndex;
             _sellOrderbook[j] = tempOrder;
+            _sellIndex[tempOrder.ref] = j;
 
             // and let's keep going down the heap
             currentIndex = j;
+        }
+    }
+
+    function editOrderbook(uint256 price, bytes32 ref, bool buy) internal {
+        if(buy){
+            _buyOrderbook[_buyIndex[ref]].value = price;
+            if(_buyIndex[ref]==0)
+                bubbleDownForMax(0);
+        }
+        else{
+            _sellOrderbook[_sellIndex[ref]].value = price; 
+            if(_sellIndex[ref]==0)
+                bubbleDownForMin(0);
+        }
+    }
+
+    function cancelOrderbook(bytes32 ref, bool buy) internal {
+        if(buy){
+            if(_buyIndex[ref]==0){
+                removeBuyOrder();
+            }
+            else{
+                _buyOrderbook[_buyIndex[ref]] = _buyOrderbook[Math.sub(_buyOrderbook.length, 1)];
+                _buyOrderbook.pop();
+            }
+        }
+        else{
+            if(_sellIndex[ref]==0){
+                removeSellOrder();
+            }
+            else{
+                _sellOrderbook[_sellIndex[ref]] = _sellOrderbook[Math.sub(_sellOrderbook.length, 1)];
+                _sellOrderbook.pop();
+            }
         }
     }
 
