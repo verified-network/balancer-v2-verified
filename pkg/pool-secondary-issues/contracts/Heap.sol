@@ -3,7 +3,7 @@ pragma solidity ^0.7.0;
 pragma experimental ABIEncoderV2;
 
 import "@balancer-labs/v2-solidity-utils/contracts/math/Math.sol";
-import "hardhat/console.sol";
+
 abstract contract Heap {
     
     struct Node {
@@ -82,10 +82,6 @@ abstract contract Heap {
 
         // Delete the last element from the array
         _buyOrderbook.pop();
-        for(uint i=0; i<_buyOrderbook.length;i++)
-        {
-            console.log(_buyOrderbook[i].value);
-        }
         // Start at the top
         uint256 currentIndex = 0;
 
@@ -95,11 +91,6 @@ abstract contract Heap {
             bubbleDownForMax(currentIndex);
 
         // finally, return the top of the heap
-        console.log("After bubble down");
-        for(uint i=0; i<_buyOrderbook.length;i++)
-        {
-            console.log(_buyOrderbook[i].value);
-        }
         return toReturn;
     }
 

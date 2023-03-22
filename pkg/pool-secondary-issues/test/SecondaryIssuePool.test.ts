@@ -364,8 +364,8 @@ describe('SecondaryPool', function () {
         balances: currentBalances,
         data: abiCoder.encode([], []), // MarketOrder Buy@market price
       });
-      expect(buy_order[0].toString()).to.be.equals(fp(20).toString()); 
-      
+      expect(buy_order[0].toString()).to.be.equals(fp(200).toString()); 
+
       const counterPartyTrades = await ob.getTrades({from: lp});
       const partyTrades = await ob.getTrades({from: trader});
 
@@ -391,17 +391,17 @@ describe('SecondaryPool', function () {
       })
       expect(sell_order[0].toString()).to.be.equals(sell_qty.toString());
 
-      const buy_order = await pool.swapGivenOut({
+      const buy_order = await pool.swapGivenIn({
         in: pool.currencyIndex,
         out: pool.securityIndex,
-        amount: buy_qty,
+        amount: usdcAmount(200),
         from: trader,
         balances: currentBalances,
         data: abiCoder.encode([], []), // MarketOrder Buy@market price
          
       });
 
-      expect(buy_order[0].toString()).to.be.equals(partyAmountExpected.toString()); 
+      expect(buy_order[0].toString()).to.be.equals(fp(10).toString()); 
       const counterPartyTrades = await ob.getTrades({from: lp});
       const partyTrades = await ob.getTrades({from: trader});
 
@@ -690,13 +690,10 @@ describe('SecondaryPool', function () {
         
         if(misc && OrderType[buy_RandomOrderType] == "Market")
         {
-          console.log("buy_data",buy_data);
-          console.log("securityTraded",securityTraded.toString());
-          console.log("currencyTraded",currencyTraded.toString());
-          await expect(pool.swapGivenOut({
+          await expect(pool.swapGivenIn({
             in: pool.currencyIndex,
             out: pool.securityIndex,
-            amount: fp(buy_qty),
+            amount: usdcAmount(buy_qty*sell_price),
             from: trader,
             balances: currentBalances,
             data: buy_data, 
@@ -705,15 +702,15 @@ describe('SecondaryPool', function () {
         else { 
           if(OrderType[buy_RandomOrderType] == "Market")
           {
-            const buyMarket = await pool.swapGivenOut({
+            const buyMarket = await pool.swapGivenIn({
               in: pool.currencyIndex,
               out: pool.securityIndex,
-              amount: fp(buy_qty),
+              amount: usdcAmount(buy_qty*sell_price),
               from: trader,
               balances: currentBalances,
               data: buy_data, 
             })
-            expect(buyMarket[0].toString()).to.be.equals(currencyTraded.toString()); 
+            expect(buyMarket[0].toString()).to.be.equals(fp(buy_qty).toString()); 
           }
           else{
             if(sell_price > buy_price) return;
@@ -793,15 +790,15 @@ describe('SecondaryPool', function () {
         balances: currentBalances,
         data : abiCoder.encode(["string", "uint"], ['Limit', fp(104)]),
       })
-      const buy_order = await pool.swapGivenOut({ // Buy Security 10@CMP
+      const buy_order = await pool.swapGivenIn({ // Buy Security 10@CMP
         in: pool.currencyIndex,
         out: pool.securityIndex,
-        amount: fp(10),
+        amount: usdcAmount(1020),
         from: lp,
         balances: currentBalances,
         data: abiCoder.encode([], []),
       });
-      expect(buy_order[0].toString()).to.be.equals(avgCurrencyTraded.toString()); 
+      expect(buy_order[0].toString()).to.be.equals(fp(10).toString()); 
     });
     it('Sell 3 orders & 1 Buy Market Order [Insufficient Liquidity]', async () => {
       
@@ -829,10 +826,10 @@ describe('SecondaryPool', function () {
         balances: currentBalances,
         data : abiCoder.encode(["string", "uint"], ['Limit', fp(102)]),
       })
-      await expect(pool.swapGivenOut({ // Buy Security 10@CMP
+      await expect(pool.swapGivenIn({ // Buy Security 10@CMP
         in: pool.currencyIndex,
         out: pool.securityIndex,
-        amount: fp(10),
+        amount: usdcAmount(1020),
         from: lp,
         balances: currentBalances,
         data: abiCoder.encode([], []),

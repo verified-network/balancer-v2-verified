@@ -21,7 +21,7 @@ import "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
 import "@balancer-labs/v2-interfaces/contracts/pool-secondary/SecondaryPoolUserData.sol";
 import "@balancer-labs/v2-interfaces/contracts/vault/IGeneralPool.sol";
 import "@balancer-labs/v2-interfaces/contracts/solidity-utils/helpers/BalancerErrors.sol";
-import "hardhat/console.sol";
+
 contract SecondaryIssuePool is BasePool, IGeneralPool {
     using SecondaryPoolUserData for bytes;
     using SafeERC20 for IERC20;
@@ -274,16 +274,13 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         if(params.trade == IOrder.OrderType.Market){
             
             if (request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
-                // console.log("Inside market");
                 (ref, tp, amount) = _orderbook.newOrder(request, params);
             } 
             else{
                 _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
             }
-            console.log("amount",amount);
             require(amount!=0, "Insufficient liquidity");
             emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, params.price, tp, ref);
-            // console.log("Amount tr", amount);
             /*bytes32 orderType;
             uint256 price;
             if(request.tokenIn == IERC20(_security)){
