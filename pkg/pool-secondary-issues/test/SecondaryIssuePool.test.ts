@@ -173,7 +173,7 @@ describe('SecondaryPool', function () {
 
       secondary_pool = await deployPool({ securityToken, currencyToken }, true);
 
-      await setBalances(pool, { securityBalance: fp(100000), currencyBalance: usdcAmount(100000), bptBalance: MAX_UINT112.sub(_DEFAULT_MINIMUM_BPT) });
+      await setBalances(pool, { securityBalance: fp(5000), currencyBalance: usdcAmount(5000), bptBalance: MAX_UINT112.sub(_DEFAULT_MINIMUM_BPT) });
       
       const poolId = await pool.getPoolId();
       currentBalances = (await pool.vault.getPoolTokens(poolId)).balances;
@@ -956,7 +956,7 @@ describe('SecondaryPool', function () {
       const buy_order = await pool.swapGivenIn({ // Buy Security 10@CMP
         in: pool.currencyIndex,
         out: pool.securityIndex,
-        amount: usdcAmount(10000),
+        amount: usdcAmount(1000),
         from: trader,
         balances: currentBalances,
         data: abiCoder.encode([], [])
