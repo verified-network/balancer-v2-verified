@@ -92,23 +92,23 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
     function editOrder(
         bytes32 ref,
         uint256 _price,
-        uint256 _qty
+        IPoolSwapStructs.SwapRequest memory _request
     ) public onlyOwner returns(uint256){
         require (_orders[ref].otype != IOrder.OrderType.Market, "Market order can not be changed");
         require(_orders[ref].status == IOrder.OrderStatus.Open, "Order is already filled");
-        require(_orders[ref].party == msg.sender, "Sender is not order creator");
+        require(_orders[ref].party == _request.from, "Sender is not order creator");
         _orders[ref].price = _price;
         bool buy = _orders[ref].tokenIn==_security ? false : true;
         editOrderbook(_price, ref, buy);
         uint256 qty = _orders[ref].qty;
-        _orders[ref].qty = _qty;
+        _orders[ref].qty = _request.amount;
         return qty;
     }
 
-    function cancelOrder(bytes32 ref) public onlyOwner returns(uint256){
+    function cancelOrder(bytes32 ref, address sender) public onlyOwner returns(uint256){
         require (_orders[ref].otype != IOrder.OrderType.Market, "Market order can not be cancelled");
         require(_orders[ref].status == IOrder.OrderStatus.Open, "Order is already filled");
-        require(_orders[ref].party == msg.sender, "Sender is not order creator");
+        require(_orders[ref].party == sender, "Sender is not order creator");
         bool buy = _orders[ref].tokenIn==_security ? false : true;
         cancelOrderbook(ref, buy);
         uint256 qty = _orders[ref].qty;
@@ -118,7 +118,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
 
     //check if a buy order in the limit order book can execute over the prevailing (low) price passed to the function
     //check if a sell order in the limit order book can execute under the prevailing (high) price passed to the function
-    function checkLimitOrders(bytes32 _ref, IOrder.OrderType _trade) private returns (uint256, bytes32[] memory){
+    function checkLimitOrders(bytes32 _ref) private returns (uint256, bytes32[] memory){
         uint256 volume;
         bytes32[] memory _marketOrders;
         if(_orders[_ref].tokenIn==_security)
@@ -134,10 +134,6 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                     //since this is a sell order, counter offers must offer a better price
                     _marketOrders[index] = removeBuyOrder();
                     volume = Math.add(volume, _orders[_marketOrders[index]].qty.divDown(_orders[_marketOrders[index]].price));
-                    /*if(_trade!=IOrder.OrderType.Market && _marketOrders[index]!=_ref){
-                        //only if the consecutive order is a limit order, it goes to the market order book
-                        _marketOrders[++index] = _ref;
-                    }*/ 
                     //if it is a sell order, ie, security in
                     if(volume >= _orders[_ref].qty)
                         //if available market depth exceeds qty to trade, exit and avoid unnecessary lookup through orderbook  
@@ -155,19 +151,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                     //since this is a buy order, counter offers to sell must be for lesser price 
                     _marketOrders[index] = removeSellOrder();
                     volume = Math.add(volume, _orders[_marketOrders[index]].price.mulDown(_orders[_marketOrders[index]].qty));
-                    /*if(_trade!=IOrder.OrderType.Market && _marketOrders[index]!=_ref){
-                        //only if the consecutive order is a limit order, it goes to the market order book
-                        _marketOrders[++index] = _ref;
-                    }*/  
-                    // volume = Math.add(volume, _orders[_marketOrders[index]].qty);
-                    //if it is a buy order, ie, currency in
-                    // if(_orders[_ref].otype == IOrder.OrderType.Market)
-                    // {
-                    //     volume = Math.add(volume, _orders[_marketOrders[index]].qty);
-                    // }
-                    // else {
-                    //     volume = Math.add(volume, _orders[_marketOrders[index]].price.mulDown(_orders[_marketOrders[index]].qty));
-                    // }
+                    //if it is a buy order, ie, cash in
                     if(volume >= _orders[_ref].qty)
                         //if available market depth exceeds qty to trade, exit and avoid unnecessary lookup through orderbook  
                         return (volume, _marketOrders);
@@ -205,7 +189,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         else
             _marketOrders = new bytes32[](_sellOrderbook.length);
         //check if enough market volume exist to fulfil market orders, or if market depth is zero
-        (i, _marketOrders) = checkLimitOrders(ref, _trade);
+        (i, _marketOrders) = checkLimitOrders(ref);
         if(_trade==IOrder.OrderType.Market){
             if(i < _order.qty){
                 reinsertOrders(_marketOrders);
@@ -249,14 +233,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                         currencyTraded = _order.qty.mulDown(bestPrice);
                         _orders[bestBid].qty = Math.sub(_orders[bestBid].qty, _order.qty);
                         _order.qty = 0;
-                        if(_orders[bestBid].qty == 0)
-                        {
-                            _orders[bestBid].status = IOrder.OrderStatus.Filled;
-                            //deleteOrder(bidIndex); //not required since we have already removed element from heap
-                        }
-                        else{
-                            _orders[bestBid].status = IOrder.OrderStatus.PartlyFilled;
-                        }
+                        _orders[bestBid].status = _orders[bestBid].qty == 0 ? IOrder.OrderStatus.Filled : IOrder.OrderStatus.PartlyFilled;
                         _order.status = IOrder.OrderStatus.Filled;  
                         bidIndex = reportTrade(ref, bestBid, securityTraded, currencyTraded);
                         if(_order.otype == IOrder.OrderType.Market){
@@ -271,7 +248,6 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                         _orders[bestBid].status = IOrder.OrderStatus.Filled;
                         _order.status = IOrder.OrderStatus.PartlyFilled;
                         reportTrade(ref, bestBid, securityTraded, currencyTraded);
-                        //deleteOrder(bidIndex); //not required since we have already removed element from heap
                     }
                 }
             }
@@ -283,14 +259,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                         securityTraded = _order.qty.divDown(bestPrice);
                         _orders[bestOffer].qty = Math.sub(_orders[bestOffer].qty, securityTraded);
                         _order.qty = 0;
-                        if(_orders[bestOffer].qty == 0)
-                        {
-                            _orders[bestOffer].status = IOrder.OrderStatus.Filled;
-                            //deleteOrder(bidIndex); //not required since we have already removed element from heap
-                        }
-                        else{
-                            _orders[bestOffer].status = IOrder.OrderStatus.PartlyFilled;
-                        }
+                        _orders[bestOffer].status = _orders[bestOffer].qty == 0 ? IOrder.OrderStatus.Filled : IOrder.OrderStatus.PartlyFilled;
                         _order.status = IOrder.OrderStatus.Filled;  
                         bidIndex = reportTrade(ref, bestOffer, securityTraded, currencyTraded);
                         if(_order.otype == IOrder.OrderType.Market){
@@ -305,7 +274,6 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                         _orders[bestOffer].status = IOrder.OrderStatus.Filled;
                         _order.status = IOrder.OrderStatus.PartlyFilled;    
                         reportTrade(ref, bestOffer, securityTraded, currencyTraded);                    
-                        //deleteOrder(bidIndex); //not required since we have already removed element from heap
                     }                    
                 }
             }
@@ -366,6 +334,19 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
             if(_trades[_party][i]==_timestamp)
                 delete _trades[_party][i];
         }
+    }
+    
+    //remove this function using unbounded for loop, use the subgraph instead
+    function getOrderRef() external view returns (bytes32[] memory) {
+        bytes32[] memory refs = new bytes32[](_sellOrderbook.length);
+        uint256 i;
+        for(uint256 j=0; j<_sellOrderbook.length; j++){
+            if(_orders[_sellOrderbook[j].ref].party==msg.sender){
+                refs[i] = _sellOrderbook[j].ref;
+                i++;
+            }
+        }
+        return refs;
     }
 
     function revertTrade(

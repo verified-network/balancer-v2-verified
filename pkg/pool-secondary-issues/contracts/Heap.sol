@@ -3,7 +3,7 @@ pragma solidity ^0.7.0;
 pragma experimental ABIEncoderV2;
 
 import "@balancer-labs/v2-solidity-utils/contracts/math/Math.sol";
-import "hardhat/console.sol";
+
 abstract contract Heap {
     
     struct Node {
@@ -164,7 +164,6 @@ abstract contract Heap {
     }
 
     function bubbleDownForMin(uint256 currentIndex) private {
-        console.log("_sellOrderbook.length",_sellOrderbook.length);
         while (Math.mul(currentIndex, 2) < Math.sub(_sellOrderbook.length, 1)) {
             // get the current index of the children
             uint256 j = Math.mul(currentIndex, 2);
@@ -199,12 +198,12 @@ abstract contract Heap {
     function editOrderbook(uint256 price, bytes32 ref, bool buy) internal {
         if(buy){
             _buyOrderbook[_buyIndex[ref]].value = price;
-            if(_buyIndex[ref]==0)
+            if(_buyIndex[ref] == 0)
                 bubbleDownForMax(0);
         }
         else{
             _sellOrderbook[_sellIndex[ref]].value = price; 
-            if(_sellIndex[ref]==0)
+            if(_sellIndex[ref] == 0)
                 bubbleDownForMin(0);
         }
     }
