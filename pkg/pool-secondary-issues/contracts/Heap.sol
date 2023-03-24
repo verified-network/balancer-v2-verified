@@ -7,7 +7,7 @@ import "@balancer-labs/v2-solidity-utils/contracts/math/Math.sol";
 abstract contract Heap {
     
     struct Node {
-        uint256 value;
+        uint256 price;
         bytes32 ref;
     }
 
@@ -31,7 +31,7 @@ abstract contract Heap {
 
         while (
             currentIndex > 0 &&
-            _buyOrderbook[parentIndex].value < _buyOrderbook[currentIndex].value
+            _buyOrderbook[parentIndex].price < _buyOrderbook[currentIndex].price
         ) {
             // If the parent value is lower than our current value, we swap them
             Node memory temp = _buyOrderbook[parentIndex];
@@ -60,7 +60,7 @@ abstract contract Heap {
 
         while (
             currentIndex > 0 &&
-            _sellOrderbook[parentIndex].value > _sellOrderbook[currentIndex].value
+            _sellOrderbook[parentIndex].price > _sellOrderbook[currentIndex].price
         ) {
             // If the parent value is larger than our current value, we swap them
             Node memory temp = _sellOrderbook[parentIndex];
@@ -137,9 +137,9 @@ abstract contract Heap {
             uint256 j = Math.mul(currentIndex, 2);
 
             // left child value
-            uint256 leftChild = _buyOrderbook[j].value;
+            uint256 leftChild = _buyOrderbook[j].price;
             // right child value
-            uint256 rightChild = _buyOrderbook[Math.add(j, 1)].value;
+            uint256 rightChild = _buyOrderbook[Math.add(j, 1)].price;
 
             // Compare the left and right child. if the rightChild is greater, then point j to it's index
             if (leftChild < rightChild) {
@@ -147,7 +147,7 @@ abstract contract Heap {
             }
 
             // compare the current parent value with the highest child, if the parent is greater, we're done
-            if (_buyOrderbook[currentIndex].value > _buyOrderbook[j].value) {
+            if (_buyOrderbook[currentIndex].price > _buyOrderbook[j].price) {
                 break;
             }
 
@@ -169,9 +169,9 @@ abstract contract Heap {
             uint256 j = Math.mul(currentIndex, 2);
 
             // left child value
-            uint256 leftChild = _sellOrderbook[j].value;
+            uint256 leftChild = _sellOrderbook[j].price;
             // right child value
-            uint256 rightChild = _sellOrderbook[Math.add(j, 1)].value;
+            uint256 rightChild = _sellOrderbook[Math.add(j, 1)].price;
 
             // Compare the left and right child. if the rightChild is lesser, then point j to it's index
             if (leftChild > rightChild) {
@@ -179,7 +179,7 @@ abstract contract Heap {
             }
 
             // compare the current parent value with the highest child, if the parent is lesser, we're done
-            if (_sellOrderbook[currentIndex].value < _sellOrderbook[j].value) {
+            if (_sellOrderbook[currentIndex].price < _sellOrderbook[j].price) {
                 break;
             }
 
@@ -197,12 +197,12 @@ abstract contract Heap {
 
     function editOrderbook(uint256 price, bytes32 ref, bool buy) internal {
         if(buy){
-            _buyOrderbook[_buyIndex[ref]].value = price;
+            _buyOrderbook[_buyIndex[ref]].price = price;
             if(_buyIndex[ref] == 0)
                 bubbleDownForMax(0);
         }
         else{
-            _sellOrderbook[_sellIndex[ref]].value = price; 
+            _sellOrderbook[_sellIndex[ref]].price = price; 
             if(_sellIndex[ref] == 0)
                 bubbleDownForMin(0);
         }
@@ -238,11 +238,11 @@ abstract contract Heap {
     }
 
     function getBestSellPrice() internal view returns (uint256) {
-        return _sellOrderbook[0].value;
+        return _sellOrderbook[0].price;
     }
 
     function getBestBuyPrice() internal view returns (uint256) {
-        return _buyOrderbook[0].value;
+        return _buyOrderbook[0].price;
     }
 
 }

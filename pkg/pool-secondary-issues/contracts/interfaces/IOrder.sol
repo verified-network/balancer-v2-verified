@@ -15,11 +15,11 @@ interface IOrder {
     enum Order{ Buy, Sell } 
 
     struct order{
+        address party;
         address tokenIn;
         OrderType otype;
         OrderStatus status;
-        uint256 qty;
-        address party;
+        uint256 qty;        
         uint256 price;  
     }
 
@@ -33,8 +33,6 @@ interface IOrder {
     function getSecurity() external view returns (address);
 
     function getCurrency() external view returns (address);
-
-    //function getOrderRef() external view returns(bytes32[] memory);
 
     function orderFilled(bytes32 partyRef, bytes32 counterpartyRef, uint256 executionDate) external;
 

@@ -168,7 +168,9 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
 
         if(request.userData.length!=0){
             (otype, tp) = abi.decode(request.userData, (bytes32, uint256));
-            if(otype == StringUtils.stringToBytes32("")){               
+            //if(otype == StringUtils.stringToBytes32("")){ 
+            ref = "Limit";    
+            if(otype == ""){          
                 ITrade.trade memory tradeToReport = _orderbook.getTrade(request.from, tp);
                 ref = _orderbook.getOrder(tradeToReport.partyAddress == request.from 
                                             ? tradeToReport.partyRef : tradeToReport.counterpartyRef)
@@ -214,7 +216,8 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
 
                 return _downscaleDown(amount, scalingFactors[indexOut]);
             }
-            else if(otype == StringUtils.stringToBytes32("Limit") && tp!=0){ 
+            //else if(otype == StringUtils.stringToBytes32("Limit") && tp!=0){ 
+            else if(otype == ref && tp!=0){ 
                 // is a limit order
                 params = IOrder.Params({
                     trade: IOrder.OrderType.Limit,

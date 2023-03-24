@@ -7,8 +7,8 @@ pragma experimental ABIEncoderV2;
 interface ITrade {
 
     struct trade{
-        bytes32 partyRef;
         address partyAddress;
+        bytes32 partyRef;
         bytes32 counterpartyRef;
         uint256 dt;
         uint256 securityTraded;
