@@ -819,50 +819,6 @@
     {
       "inputs": [
         {
-          "internalType": "enum IVault.SwapKind",
-          "name": "kind",
-          "type": "uint8"
-        },
-        {
-          "internalType": "bytes32",
-          "name": "poolId",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "uint256",
-          "name": "amount",
-          "type": "uint256"
-        },
-        {
-          "internalType": "bytes",
-          "name": "data",
-          "type": "bytes"
-        },
-        {
-          "internalType": "uint256",
-          "name": "indexIn",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "indexOut",
-          "type": "uint256"
-        }
-      ],
-      "name": "onLimit",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
           "components": [
             {
               "internalType": "enum IVault.SwapKind",
