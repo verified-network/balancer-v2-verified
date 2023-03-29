@@ -140,7 +140,7 @@ describe('SecondaryPool', function () {
       maxAmountsIn = new Array(tokens.length);
       maxAmountsIn[pool.securityIndex] = maxSecurityOffered; 
       maxAmountsIn[pool.currencyIndex] = usdcAmount(5);
-      maxAmountsIn[pool.bptIndex] = fp(0);
+      maxAmountsIn[pool.bptIndex] = MAX_UINT112.sub(_DEFAULT_MINIMUM_BPT);
       await pool.init({ from: owner, recipient: owner.address, initialBalances: maxAmountsIn });
     });
 
