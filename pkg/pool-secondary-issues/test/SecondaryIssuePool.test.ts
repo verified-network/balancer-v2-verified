@@ -140,7 +140,7 @@ describe('SecondaryPool', function () {
       maxAmountsIn = new Array(tokens.length);
       maxAmountsIn[pool.securityIndex] = maxSecurityOffered; 
       maxAmountsIn[pool.currencyIndex] = usdcAmount(5);
-      maxAmountsIn[pool.bptIndex] = fp(0);
+      maxAmountsIn[pool.bptIndex] = MAX_UINT112.sub(_DEFAULT_MINIMUM_BPT);
       await pool.init({ from: owner, recipient: owner.address, initialBalances: maxAmountsIn });
     });
 
@@ -205,53 +205,6 @@ describe('SecondaryPool', function () {
     return orderDetails.tokenIn == securityToken.address ? tradeInfo.securityTraded : tradeInfo.currencyTraded;
   }
 
-  const callSwapEvent = async(cpTradesInfo: any, pTradesInfo: any, counterPartyAmountExpected: BigNumber, partyAmountExpected: BigNumber, partyOrderType?: string) => {
-    //extract details of order
-    let counterPartyOrderDetails = await ob.getOrder({from: lp, ref:cpTradesInfo.counterpartyRef});
-    const cPAmount = getAmount(counterPartyOrderDetails,cpTradesInfo);
-    // for Counter Party
-     const counterPartyTx = {
-      in: pool.bptIndex, 
-      out:  counterPartyOrderDetails.tokenIn == securityToken.address ? pool.currencyIndex : pool.securityIndex,
-      amount: cPAmount,
-      from: counterPartyOrderDetails.party == lp.address ? lp : trader,
-      balances: currentBalances,
-      data: abiCoder.encode(["bytes32", "uint"], [ethers.utils.formatBytes32String(''), cpTradesInfo.dt]),
-    };
-    // console.log("counterPartyTx",counterPartyOrderDetails, cpTradesInfo, cPAmount, counterPartyTx);
-    const counterPartyAmount =  await pool.swapGivenIn(counterPartyTx);
-
-    expect(counterPartyAmount[0].toString()).to.be.equals(counterPartyAmountExpected.toString()); 
-
-    if(partyOrderType != "Market")
-    {
-      const partyOrderDetails = await ob.getOrder({from: trader, ref:pTradesInfo.partyRef});
-      // console.log("partyOrderDetails",partyOrderDetails);
-      const pAmount = getAmount(partyOrderDetails,pTradesInfo);
-      // for Party  
-      // console.log("pAmount",pAmount);
-      const partyDataTx = {
-        in: pool.bptIndex, 
-        out:  partyOrderDetails.tokenIn == securityToken.address ? pool.currencyIndex : pool.securityIndex,
-        amount: pAmount,
-        from: partyOrderDetails.party == lp.address ? lp : trader,
-        balances: currentBalances,
-        data: abiCoder.encode(["bytes32", "uint"], [ethers.utils.formatBytes32String(''), pTradesInfo.dt]),
-      };
-      const partyAmount = await pool.swapGivenIn(partyDataTx);
-      // console.log("partyAmount[0].toString()",partyAmount[0].toString());
-      // console.log("partyAmountExpected",partyAmountExpected.toString());
-      expect(partyAmount[0].toString()).to.be.equals(partyAmountExpected.toString()); 
-    }  
-    // const revertTrade = await ob.revertTrade({
-    //   from: lp, 
-    //   orderRef:cpTradesInfo.counterpartyRef, 
-    //   qty: counterPartyOrderDetails.qty,
-    //   orderType: counterPartyOrderDetails.order,
-    //   executionDate: cpTradesInfo.dt 
-    // });
-  } 
-  
   context('Placing Market Order', () => {
     let sell_qty: BigNumber;
     let buy_qty: BigNumber;
