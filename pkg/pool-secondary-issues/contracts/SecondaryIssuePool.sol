@@ -310,7 +310,6 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         uint256[] memory amountsIn = userData.joinKind();
         amountsIn[_currencyIndex] = _upscale(amountsIn[_currencyIndex], _scalingFactorCurrency);
         uint256 bptAmountOut = _INITIAL_BPT_SUPPLY;
-        amountsIn[_bptIndex] = Math.sub(_INITIAL_BPT_SUPPLY, _DEFAULT_MINIMUM_BPT);
         return (bptAmountOut, amountsIn);
     }
 
