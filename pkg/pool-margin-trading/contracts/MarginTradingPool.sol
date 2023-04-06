@@ -1,4 +1,4 @@
-// Implementation of pool for secondary issues of security tokens that support multiple order types
+// Implementation of pool for margin traded security tokens
 // (c) Kallol Borah, 2022
 //"SPDX-License-Identifier: BUSL1.1"
 
@@ -8,6 +8,7 @@ pragma experimental ABIEncoderV2;
 import "./interfaces/IOrder.sol";
 import "./interfaces/ITrade.sol";
 import "./interfaces/ISettlor.sol";
+import "./interfaces/IMarginTradingPoolFactory.sol";
 import "./utilities/StringUtils.sol";
 import "./Orderbook.sol";
 
@@ -40,7 +41,7 @@ contract MarginTradingPool is BasePool, IGeneralPool {
     uint256 private immutable _scalingFactorSecurity;
     uint256 private immutable _scalingFactorCurrency;
 
-    uint256 private _MIN_ORDER_SIZE;
+    uint256 private _minOrderSize;
     uint256 private immutable _swapFee;
 
     uint256 private immutable _bptIndex;
@@ -68,12 +69,7 @@ contract MarginTradingPool is BasePool, IGeneralPool {
     
     constructor(
         IVault vault,
-        string memory name,
-        string memory symbol,
-        address security,
-        address currency,
-        uint256 minOrderSize,
-        uint256 tradeFeePercentage,
+        IMarginTradingPoolFactory.FactoryPoolParams memory factoryPoolParams,
         uint256 pauseWindowDuration,
         uint256 bufferPeriodDuration,
         address owner
@@ -81,26 +77,26 @@ contract MarginTradingPool is BasePool, IGeneralPool {
         BasePool(
             vault,
             IVault.PoolSpecialization.GENERAL,
-            name,
-            symbol,
-            _sortTokens(IERC20(security), IERC20(currency), IERC20(this)),
+            factoryPoolParams.name,
+            factoryPoolParams.symbol,
+            _sortTokens(IERC20(factoryPoolParams.security), IERC20(factoryPoolParams.currency), IERC20(this)),
             new address[](_TOTAL_TOKENS),
-            tradeFeePercentage,
+            factoryPoolParams.tradeFeePercentage,
             pauseWindowDuration,
             bufferPeriodDuration,
             owner
         )
     {
         // set tokens
-        _security = security;
-        _currency = currency;
+        _security = factoryPoolParams.security;
+        _currency = factoryPoolParams.currency;
 
         _vault = vault;
 
         // Set token indexes
         (uint256 securityIndex, uint256 currencyIndex, uint256 bptIndex) = _getSortedTokenIndexes(
-            IERC20(security),
-            IERC20(currency),
+            IERC20(factoryPoolParams.security),
+            IERC20(factoryPoolParams.currency),
             IERC20(this)
         );
         _bptIndex = bptIndex;
@@ -108,19 +104,19 @@ contract MarginTradingPool is BasePool, IGeneralPool {
         _currencyIndex = currencyIndex;
 
         // set scaling factors
-        _scalingFactorSecurity = _computeScalingFactor(IERC20(security));
-        _scalingFactorCurrency = _computeScalingFactor(IERC20(currency));
+        _scalingFactorSecurity = _computeScalingFactor(IERC20(factoryPoolParams.security));
+        _scalingFactorCurrency = _computeScalingFactor(IERC20(factoryPoolParams.currency));
 
-        _MIN_ORDER_SIZE = minOrderSize;
+        _minOrderSize = factoryPoolParams.minOrderSize;
 
         //swap fee
-        _swapFee = tradeFeePercentage;
+        _swapFee = factoryPoolParams.tradeFeePercentage;
 
         _balancerManager = payable(owner);
 
-        _orderbook = new Orderbook(payable(owner), security, currency, address(this));
+        _orderbook = new Orderbook(payable(owner), factoryPoolParams.security, factoryPoolParams.currency, address(this));
 
-        emit Offer(security, minOrderSize, currency, address(_orderbook), owner);
+        emit Offer(factoryPoolParams.security, factoryPoolParams.minOrderSize, factoryPoolParams.currency, address(_orderbook), owner);
     }
 
     function getSecurity() external view returns (address) {
@@ -132,7 +128,7 @@ contract MarginTradingPool is BasePool, IGeneralPool {
     }
 
     function getMinOrderSize() external view returns (uint256) {
-        return _MIN_ORDER_SIZE;
+        return _minOrderSize;
     }
 
     function onSwap(
@@ -272,7 +268,7 @@ contract MarginTradingPool is BasePool, IGeneralPool {
             });
         }
 
-        require(request.amount >= _MIN_ORDER_SIZE, "Order below minimum size");        
+        require(request.amount >= _minOrderSize, "Order below minimum size");        
 
         // requested tokens can either be security or cash but token out always need to be bpt 
         if ((request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) 

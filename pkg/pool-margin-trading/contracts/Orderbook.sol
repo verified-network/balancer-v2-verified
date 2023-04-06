@@ -1,4 +1,4 @@
-// Implementation of order book for secondary issues of security tokens that support multiple order types
+// Implementation of order book for margin trading
 // (c) Kallol Borah, 2022
 //"SPDX-License-Identifier: BUSL1.1"
 

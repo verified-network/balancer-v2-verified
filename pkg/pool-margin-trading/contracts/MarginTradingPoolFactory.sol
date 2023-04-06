@@ -1,4 +1,4 @@
-// Factory to create pools of secondary issues for security token offerings
+// Factory to create margin trading pools for security tokens
 // (c) Kallol Borah, 2022
 //"SPDX-License-Identifier: BUSL1.1"
 
@@ -21,12 +21,7 @@ contract MarginTradingPoolFactory is BasePoolFactory, FactoryWidePauseWindow {
     }
 
     function create(
-        string calldata name,
-        string calldata symbol,
-        address security,
-        address currency,
-        uint256 maxAmountsIn,
-        uint256 tradeFeePercentage
+        IMarginTradingPoolFactory.FactoryPoolParams memory factoryPoolParams
     ) external returns (address) {
         
         (uint256 pauseWindowDuration, uint256 bufferPeriodDuration) = getPauseConfiguration();
@@ -35,12 +30,7 @@ contract MarginTradingPoolFactory is BasePoolFactory, FactoryWidePauseWindow {
             _create(
                 abi.encode(  
                     getVault(),
-                    name,
-                    symbol,
-                    security,
-                    currency,
-                    maxAmountsIn,
-                    tradeFeePercentage,
+                    factoryPoolParams,
                     pauseWindowDuration,
                     bufferPeriodDuration,
                     msg.sender

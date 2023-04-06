@@ -6,13 +6,19 @@ pragma experimental ABIEncoderV2;
 
 interface IMarginTradingPoolFactory {
 
+    struct FactoryPoolParams{
+        string name;
+        string symbol;
+        address security;
+        address currency;
+        uint256 minOrderSize;
+        uint256 margin;
+        uint256 collateral;
+        uint256 tradeFeePercentage;
+    }
+
     function create(
-        string calldata name,
-        string calldata symbol,
-        address security,
-        address currency,
-        uint256 maxAmountsIn,
-        uint256 tradeFeePercentage
+        FactoryPoolParams memory params
     ) external returns (address);
 
 }
