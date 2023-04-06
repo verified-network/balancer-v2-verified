@@ -132,8 +132,10 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
             while(_buyOrderbook.length!=0){
                 if (getBestBuyPrice() >= _orders[_ref].price || _orders[_ref].price==0){
                     //since this is a sell order, counter offers must offer a better price
+                    uint256 price = getBestBuyPrice();
                     _marketOrders[index] = removeBuyOrder();
-                    volume = Math.add(volume, _orders[_marketOrders[index]].qty.divDown(_orders[_marketOrders[index]].price));
+                    price = price == 0 ? _orders[_ref].price : _orders[_marketOrders[index]].price;
+                    volume = Math.add(volume, _orders[_marketOrders[index]].qty.divDown(price));
                     //if it is a sell order, ie, security in
                     if(volume >= _orders[_ref].qty)
                         //if available market depth exceeds qty to trade, exit and avoid unnecessary lookup through orderbook  
@@ -148,9 +150,12 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         else if(_orders[_ref].tokenIn==_currency){
             while(_sellOrderbook.length!=0){
                 if (getBestSellPrice() <= _orders[_ref].price || _orders[_ref].price==0){
-                    //since this is a buy order, counter offers to sell must be for lesser price 
+                    //since this is a buy order, counter offers to sell must be for lesser price
+                    uint256 price = getBestSellPrice();
                     _marketOrders[index] = removeSellOrder();
-                    volume = Math.add(volume, _orders[_marketOrders[index]].price.mulDown(_orders[_marketOrders[index]].qty));
+                    price = price == 0 ? _orders[_ref].price : _orders[_marketOrders[index]].price;
+                    volume = Math.add(volume, price.mulDown(_orders[_marketOrders[index]].qty));
+                    
                     //if it is a buy order, ie, cash in
                     if(volume >= _orders[_ref].qty)
                         //if available market depth exceeds qty to trade, exit and avoid unnecessary lookup through orderbook  
@@ -212,14 +217,14 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                 if (_orders[_marketOrders[i]].price == 0 && _order.price == 0) continue; // Case: If Both CP & Party place Order@CMP
                 if (_orders[_marketOrders[i]].tokenIn == _currency && _order.tokenIn == _security) {
                     if (_orders[_marketOrders[i]].price >= _order.price || _order.price == 0) {
-                        bestPrice = _orders[_marketOrders[i]].price;  
+                        bestPrice = _orders[_marketOrders[i]].price == 0 ? _order.price : _orders[_marketOrders[i]].price;    
                         bestBid = _marketOrders[i];
                         bidIndex = i;
                     }
                 } 
                 else if (_orders[_marketOrders[i]].tokenIn == _security && _order.tokenIn == _currency) {
                     if (_orders[_marketOrders[i]].price <= _order.price || _order.price == 0) {
-                        bestPrice = _orders[_marketOrders[i]].price;  
+                        bestPrice = _orders[_marketOrders[i]].price == 0 ? _order.price : _orders[_marketOrders[i]].price;  
                         bestOffer = _marketOrders[i];
                         bidIndex = i;
                     }
