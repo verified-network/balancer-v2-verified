@@ -1,10 +1,10 @@
-// Secondary issue pool interface 
+//Margin trading pool interface 
 //"SPDX-License-Identifier: BUSL1.1"
 
 pragma solidity ^0.7.0;
 pragma experimental ABIEncoderV2;
 
-interface ISecondaryIssuePool {
+interface IMarginTradingPool {
 
     function getPoolId() external view returns(bytes32);
     

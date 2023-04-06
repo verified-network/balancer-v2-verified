@@ -21,7 +21,7 @@ import "@balancer-labs/v2-interfaces/contracts/pool-secondary/SecondaryPoolUserD
 import "@balancer-labs/v2-interfaces/contracts/vault/IGeneralPool.sol";
 import "@balancer-labs/v2-interfaces/contracts/solidity-utils/helpers/BalancerErrors.sol";
 
-contract SecondaryIssuePool is BasePool, IGeneralPool {
+contract MarginTradingPool is BasePool, IGeneralPool {
     using SecondaryPoolUserData for bytes;
     using SafeERC20 for IERC20;
     using FixedPoint for uint256;

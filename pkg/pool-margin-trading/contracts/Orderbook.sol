@@ -7,7 +7,7 @@ pragma experimental ABIEncoderV2;
 
 import "./interfaces/IOrder.sol";
 import "./interfaces/ITrade.sol";
-import "./interfaces/ISecondaryIssuePool.sol";
+import "./interfaces/IMarginTradingPool.sol";
 
 import "@balancer-labs/v2-solidity-utils/contracts/math/Math.sol";
 import "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
@@ -47,7 +47,7 @@ contract Orderbook is IOrder, ITrade, Ownable{
     }
 
     function getPoolId() external override view returns(bytes32){
-        bytes32 _poolId = ISecondaryIssuePool(_pool).getPoolId();
+        bytes32 _poolId = IMarginTradingPool(_pool).getPoolId();
         return _poolId;
     }
 

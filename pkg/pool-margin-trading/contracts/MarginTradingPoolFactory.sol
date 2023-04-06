@@ -10,12 +10,12 @@ import "@balancer-labs/v2-interfaces/contracts/vault/IVault.sol";
 import "@balancer-labs/v2-pool-utils/contracts/factories/BasePoolFactory.sol";
 import "@balancer-labs/v2-pool-utils/contracts/factories/FactoryWidePauseWindow.sol";
 
-import "./SecondaryIssuePool.sol";
-import "./interfaces/ISecondaryIssuePoolFactory.sol";
+import "./MarginTradingPool.sol";
+import "./interfaces/IMarginTradingPoolFactory.sol";
 
-contract SecondaryIssuePoolFactory is BasePoolFactory, FactoryWidePauseWindow {
+contract MarginTradingPoolFactory is BasePoolFactory, FactoryWidePauseWindow {
     constructor(IVault vault, IProtocolFeePercentagesProvider protocolFeeProvider) 
-        BasePoolFactory(vault, protocolFeeProvider, type(SecondaryIssuePool).creationCode)
+        BasePoolFactory(vault, protocolFeeProvider, type(MarginTradingPool).creationCode)
     {
         // solhint-disable-previous-line no-empty-blocks
     }

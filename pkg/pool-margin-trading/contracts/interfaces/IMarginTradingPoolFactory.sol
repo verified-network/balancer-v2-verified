@@ -1,10 +1,10 @@
-// Factory interface to create pools of secondary issues for security token offerings
+// Factory interface to create margin trading pools
 //"SPDX-License-Identifier: BUSL1.1"
 
 pragma solidity ^0.7.0;
 pragma experimental ABIEncoderV2;
 
-interface ISecondaryIssuePoolFactory {
+interface IMarginTradingPoolFactory {
 
     function create(
         string calldata name,
