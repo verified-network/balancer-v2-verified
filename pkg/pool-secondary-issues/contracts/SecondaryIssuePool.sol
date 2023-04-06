@@ -209,7 +209,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 );
                 tradeToReport.securityTraded = _downscaleDown(tradeToReport.securityTraded, _scalingFactorSecurity);
                 tradeToReport.currencyTraded = _downscaleDown(tradeToReport.currencyTraded, _scalingFactorCurrency);
-                ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
+                //ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
                 _orderbook.removeTrade(request.from, tp);
                 // The amount given is for token out, the amount calculated is for token in
                 return _downscaleDown(amount, scalingFactors[indexOut]);
@@ -267,7 +267,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
 
         require(request.amount >= _MIN_ORDER_SIZE, "Order below minimum size");
 
-        if(params.trade == IOrder.OrderType.Market){
+        /*if(params.trade == IOrder.OrderType.Market){
             
             if (request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
                 (ref, tp, amount) = _orderbook.newOrder(request, params);                
@@ -290,8 +290,8 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
             //        return _downscaleDown(amount, scalingFactors[indexIn]);
             //    }
             //}
-        }
-        else{
+        }*/
+        //else{
             if ((request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) 
                 && request.tokenOut == IERC20(this) && request.kind == IVault.SwapKind.GIVEN_IN) {
                 if(balances[_bptIndex] > request.amount){
@@ -309,7 +309,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
             
             // bpt tokens equivalent to amount requested are exiting the Pool, so we round down.
             return _downscaleDown(request.amount, scalingFactors[indexOut]);
-        }
+        //}
     }
 
     function _onInitializePool(
