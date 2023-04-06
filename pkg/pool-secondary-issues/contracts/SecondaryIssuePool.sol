@@ -168,7 +168,6 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
 
         if(request.userData.length!=0){
             (otype, tp) = abi.decode(request.userData, (bytes32, uint256));
-            //if(otype == StringUtils.stringToBytes32("")){ 
             ref = "Limit";    
             if(otype == ""){          
                 ITrade.trade memory tradeToReport = _orderbook.getTrade(request.from, tp);
@@ -213,10 +212,8 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
                 _orderbook.removeTrade(request.from, tp);
                 // The amount given is for token out, the amount calculated is for token in
-
                 return _downscaleDown(amount, scalingFactors[indexOut]);
             }
-            //else if(otype == StringUtils.stringToBytes32("Limit") && tp!=0){ 
             else if(otype == ref && tp!=0){ 
                 // is a limit order
                 params = IOrder.Params({
@@ -273,11 +270,12 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         if(params.trade == IOrder.OrderType.Market){
             
             if (request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
-                (ref, tp, amount) = _orderbook.newOrder(request, params);
+                (ref, tp, amount) = _orderbook.newOrder(request, params);                
             } 
             else{
                 _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
             }
+
             require(amount!=0, "Insufficient liquidity");
             emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, params.price, tp, ref);
             
@@ -286,11 +284,12 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                     return _downscaleDown(amount, scalingFactors[indexOut]);
                 }
             }
-            else if(request.kind == IVault.SwapKind.GIVEN_OUT){
-                if (request.tokenOut == IERC20(_security) || request.tokenOut == IERC20(_currency)) {
-                    return _downscaleDown(amount, scalingFactors[indexIn]);
-                }
-            }
+            // TBD : is this block below required ?
+            //else if(request.kind == IVault.SwapKind.GIVEN_OUT){
+            //    if (request.tokenOut == IERC20(_security) || request.tokenOut == IERC20(_currency)) {
+            //        return _downscaleDown(amount, scalingFactors[indexIn]);
+            //    }
+            //}
         }
         else{
             if ((request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) 
