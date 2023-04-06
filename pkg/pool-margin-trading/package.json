@@ -1,5 +1,5 @@
 {
-  "name": "@verified-network/pool-cfd",
+  "name": "@verified-network/pool-margin-trading",
   "version": "0.1.0",
   "description": "Balancer V2 Security token Pools",
   "license": "BUSL1.1",
@@ -7,7 +7,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/balancer-labs/balancer-v2-monorepo.git",
-    "directory": "pkg/pool-secondary-issues"
+    "directory": "pkg/pool-margin-trading"
   },
   "bugs": {
     "url": "https://github.com/balancer-labs/balancer-v2-monorepo/issues"

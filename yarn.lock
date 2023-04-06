@@ -2775,9 +2775,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@verified-network/pool-cfd@workspace:pkg/pool-cfd":
+"@verified-network/pool-margin-trading@workspace:pkg/pool-margin-trading":
   version: 0.0.0-use.local
-  resolution: "@verified-network/pool-cfd@workspace:pkg/pool-cfd"
+  resolution: "@verified-network/pool-margin-trading@workspace:pkg/pool-margin-trading"
   dependencies:
     "@balancer-labs/v2-common": "workspace:*"
     "@balancer-labs/v2-helpers": "workspace:*"

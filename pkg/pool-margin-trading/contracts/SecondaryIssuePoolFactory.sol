@@ -1,4 +1,4 @@
-// Factory to create pools of tokenized CFDs
+// Factory to create pools of secondary issues for security token offerings
 // (c) Kallol Borah, 2022
 //"SPDX-License-Identifier: BUSL1.1"
 
@@ -10,12 +10,12 @@ import "@balancer-labs/v2-interfaces/contracts/vault/IVault.sol";
 import "@balancer-labs/v2-pool-utils/contracts/factories/BasePoolFactory.sol";
 import "@balancer-labs/v2-pool-utils/contracts/factories/FactoryWidePauseWindow.sol";
 
-import "./CFDPool.sol";
-import "./interfaces/ICFDPoolFactory.sol";
+import "./SecondaryIssuePool.sol";
+import "./interfaces/ISecondaryIssuePoolFactory.sol";
 
-contract CFDPoolFactory is BasePoolFactory, FactoryWidePauseWindow {
+contract SecondaryIssuePoolFactory is BasePoolFactory, FactoryWidePauseWindow {
     constructor(IVault vault, IProtocolFeePercentagesProvider protocolFeeProvider) 
-        BasePoolFactory(vault, protocolFeeProvider, type(CFDPool).creationCode)
+        BasePoolFactory(vault, protocolFeeProvider, type(SecondaryIssuePool).creationCode)
     {
         // solhint-disable-previous-line no-empty-blocks
     }
@@ -25,8 +25,7 @@ contract CFDPoolFactory is BasePoolFactory, FactoryWidePauseWindow {
         string calldata symbol,
         address security,
         address currency,
-        uint256 minOrderSize,
-        uint256 margin,
+        uint256 maxAmountsIn,
         uint256 tradeFeePercentage
     ) external returns (address) {
         
@@ -40,8 +39,7 @@ contract CFDPoolFactory is BasePoolFactory, FactoryWidePauseWindow {
                     symbol,
                     security,
                     currency,
-                    minOrderSize,
-                    margin,
+                    maxAmountsIn,
                     tradeFeePercentage,
                     pauseWindowDuration,
                     bufferPeriodDuration,

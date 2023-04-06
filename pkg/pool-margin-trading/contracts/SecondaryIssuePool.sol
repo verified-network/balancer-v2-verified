@@ -1,4 +1,4 @@
-// Implementation of pool for CFDs with offchain order matching and on chain settlement
+// Implementation of pool for secondary issues of security tokens that support multiple order types
 // (c) Kallol Borah, 2022
 //"SPDX-License-Identifier: BUSL1.1"
 
@@ -8,6 +8,7 @@ pragma experimental ABIEncoderV2;
 import "./interfaces/IOrder.sol";
 import "./interfaces/ITrade.sol";
 import "./interfaces/ISettlor.sol";
+import "./utilities/StringUtils.sol";
 import "./Orderbook.sol";
 
 import "@balancer-labs/v2-pool-utils/contracts/BasePool.sol";
@@ -20,10 +21,11 @@ import "@balancer-labs/v2-interfaces/contracts/pool-secondary/SecondaryPoolUserD
 import "@balancer-labs/v2-interfaces/contracts/vault/IGeneralPool.sol";
 import "@balancer-labs/v2-interfaces/contracts/solidity-utils/helpers/BalancerErrors.sol";
 
-contract CFDPool is BasePool, IGeneralPool {
+contract SecondaryIssuePool is BasePool, IGeneralPool {
     using SecondaryPoolUserData for bytes;
     using SafeERC20 for IERC20;
     using FixedPoint for uint256;
+    using StringUtils for string;
 
     Orderbook public _orderbook;
     
@@ -33,12 +35,12 @@ contract CFDPool is BasePool, IGeneralPool {
     uint256 private constant _TOTAL_TOKENS = 3; //Security token, Currency token (ie, paired token), Balancer pool token
 
     uint256 private constant _INITIAL_BPT_SUPPLY = 2**(112) - 1;
+    uint256 private constant _DEFAULT_MINIMUM_BPT = 1e6;
 
     uint256 private immutable _scalingFactorSecurity;
     uint256 private immutable _scalingFactorCurrency;
 
-    uint256 private _minOrderSize;
-    uint256 private _margin;
+    uint256 private _MIN_ORDER_SIZE;
     uint256 private immutable _swapFee;
 
     uint256 private immutable _bptIndex;
@@ -60,7 +62,7 @@ contract CFDPool is BasePool, IGeneralPool {
         uint256 executionDate
     );
 
-    event Offer(address indexed security, uint256 minOrderSize, address currency, uint256 margin, address orderBook, address issueManager);  
+    event Offer(address indexed security, uint256 minOrderSize, address currency, address orderBook, address issueManager);  
 
     event OrderBook(address creator, address tokenIn, address tokenOut, uint256 amountOffered, uint256 priceOffered, uint256 timestamp, bytes32 orderRef);
     
@@ -71,7 +73,6 @@ contract CFDPool is BasePool, IGeneralPool {
         address security,
         address currency,
         uint256 minOrderSize,
-        uint256 margin,
         uint256 tradeFeePercentage,
         uint256 pauseWindowDuration,
         uint256 bufferPeriodDuration,
@@ -110,8 +111,7 @@ contract CFDPool is BasePool, IGeneralPool {
         _scalingFactorSecurity = _computeScalingFactor(IERC20(security));
         _scalingFactorCurrency = _computeScalingFactor(IERC20(currency));
 
-        _minOrderSize = minOrderSize;
-        _margin = margin;
+        _MIN_ORDER_SIZE = minOrderSize;
 
         //swap fee
         _swapFee = tradeFeePercentage;
@@ -120,7 +120,7 @@ contract CFDPool is BasePool, IGeneralPool {
 
         _orderbook = new Orderbook(payable(owner), security, currency, address(this));
 
-        emit Offer(security, minOrderSize, currency, margin, address(_orderbook), owner);
+        emit Offer(security, minOrderSize, currency, address(_orderbook), owner);
     }
 
     function getSecurity() external view returns (address) {
@@ -132,11 +132,7 @@ contract CFDPool is BasePool, IGeneralPool {
     }
 
     function getMinOrderSize() external view returns (uint256) {
-        return _minOrderSize;
-    }
-
-    function getMargin() external view returns(uint256){
-        return _margin;
+        return _MIN_ORDER_SIZE;
     }
 
     function onSwap(
@@ -148,16 +144,19 @@ contract CFDPool is BasePool, IGeneralPool {
         require (request.kind == IVault.SwapKind.GIVEN_IN || request.kind == IVault.SwapKind.GIVEN_OUT, "Invalid swap");
         require(request.tokenOut == IERC20(_currency) ||
                 request.tokenOut == IERC20(_security) ||
+                request.tokenOut == IERC20(this) ||
                 request.tokenIn == IERC20(_currency) ||
-                request.tokenIn == IERC20(_security), "Invalid swapped tokens");
+                request.tokenIn == IERC20(_security) ||
+                request.tokenIn == IERC20(this), "Invalid swapped tokens");
 
         uint256[] memory scalingFactors = _scalingFactors();
         _upscaleArray(balances, scalingFactors);
-
-        string memory otype;
+        
+        IOrder.Params memory params;
+        bytes32 otype;
         uint256 tp;
-        bytes32 tradeRef;
-        uint256 amount; 
+        bytes32 ref;
+        uint256 amount;        
 
         if (request.kind == IVault.SwapKind.GIVEN_IN) 
             request.amount = _upscale(request.amount, scalingFactors[indexIn]);
@@ -168,135 +167,134 @@ contract CFDPool is BasePool, IGeneralPool {
             require(balances[_currencyIndex]>=request.amount, "Insufficient currency balance");
         else if(request.tokenIn==IERC20(_security) && request.kind==IVault.SwapKind.GIVEN_IN)
             require(balances[_securityIndex]>=request.amount, "Insufficient security balance");
+        else if(request.tokenIn==IERC20(this) && request.kind==IVault.SwapKind.GIVEN_IN)
+            require(balances[_bptIndex]>=request.amount, "Insufficient pool token balance");
 
         if(request.userData.length!=0){
-            (otype, tp) = abi.decode(request.userData, (string, uint256));  
-            if(bytes(otype).length==0){               
+            (otype, tp) = abi.decode(request.userData, (bytes32, uint256));
+            //if(otype == StringUtils.stringToBytes32("")){ 
+            ref = "Limit";    
+            if(otype == ""){          
                 ITrade.trade memory tradeToReport = _orderbook.getTrade(request.from, tp);
-                //ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
-                tradeRef = _orderbook.getOrder(tradeToReport.partyAddress == request.from 
+                ref = _orderbook.getOrder(tradeToReport.partyAddress == request.from 
                                             ? tradeToReport.partyRef : tradeToReport.counterpartyRef)
-                                            .tokenIn==_security? bytes32("security") : bytes32("currency");                
-                if(request.tokenIn==IERC20(_security) && request.kind==IVault.SwapKind.GIVEN_IN ||
-                    request.tokenOut==IERC20(_security) && request.kind==IVault.SwapKind.GIVEN_OUT
-                ){
-                    amount = tradeToReport.currencyTraded;
-                }
-                else if(request.tokenIn==IERC20(_currency) && request.kind==IVault.SwapKind.GIVEN_IN ||
-                    request.tokenOut==IERC20(_currency) && request.kind==IVault.SwapKind.GIVEN_OUT
-                ){
+                                            .tokenIn==_security ? bytes32("security") : bytes32("currency");                
+                
+                if(request.tokenOut==IERC20(_security) && request.kind==IVault.SwapKind.GIVEN_IN){
                     amount = tradeToReport.securityTraded;
+                    require(tradeToReport.currencyTraded==request.amount, "Insufficient pool tokens swapped in for security");
                 }
+                else if(request.tokenOut==IERC20(_currency) && request.kind==IVault.SwapKind.GIVEN_IN){
+                    amount = tradeToReport.currencyTraded;
+                    require(tradeToReport.securityTraded==request.amount, "Insufficient pool tokens swapped in for currency");
+                }
+                else
+                    _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
+
                 bytes32 orderType;
-                if (request.tokenOut == IERC20(_currency) || request.tokenIn == IERC20(_security)) {
+                if (request.tokenOut == IERC20(_currency) && request.tokenIn == IERC20(this)) {
                     orderType = "Sell";
                 } 
-                else if (request.tokenOut == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
+                else if (request.tokenOut == IERC20(_security) && request.tokenIn == IERC20(this)) {
                     orderType = "Buy";
                 }
+                else
+                    _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
+
                 emit TradeReport(
                     _security,
-                    tradeRef,
-                    tradeRef==bytes32("security") ? _orderbook.getOrder(tradeToReport.partyRef).party : _orderbook.getOrder(tradeToReport.counterpartyRef).party,
-                    tradeRef==bytes32("currency") ? _orderbook.getOrder(tradeToReport.partyRef).party : _orderbook.getOrder(tradeToReport.counterpartyRef).party,
+                    ref,
+                    ref==bytes32("security") ? _orderbook.getOrder(tradeToReport.partyRef).party : _orderbook.getOrder(tradeToReport.counterpartyRef).party,
+                    ref==bytes32("currency") ? _orderbook.getOrder(tradeToReport.partyRef).party : _orderbook.getOrder(tradeToReport.counterpartyRef).party,
                     orderType,
-                    tradeToReport.currencyTraded.divDown(tradeToReport.securityTraded),    
+                    tradeToReport.currencyTraded.divDown(tradeToReport.securityTraded),                    
                     _currency,
                     amount,
                     tradeToReport.dt
                 );
+                tradeToReport.securityTraded = _downscaleDown(tradeToReport.securityTraded, _scalingFactorSecurity);
+                tradeToReport.currencyTraded = _downscaleDown(tradeToReport.currencyTraded, _scalingFactorCurrency);
+                //ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
                 _orderbook.removeTrade(request.from, tp);
-                if(request.kind == IVault.SwapKind.GIVEN_IN){
-                    if (request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
-                        return _downscaleDown(amount, scalingFactors[indexOut]);
-                    }
-                }
-                else if(request.kind == IVault.SwapKind.GIVEN_OUT) {
-                    if (request.tokenOut == IERC20(_security) || request.tokenOut == IERC20(_currency)) {
-                        return _downscaleDown(amount, scalingFactors[indexIn]);
-                    }
-                }
+                // The amount given is for token out, the amount calculated is for token in
+
+                return _downscaleDown(amount, scalingFactors[indexOut]);
             }
-        }        
-
-    }
-
-    function onLimit(
-        IVault.SwapKind kind,
-        bytes32 poolId,
-        uint256 amount,
-        bytes memory data,
-        uint256 indexIn,
-        uint256 indexOut
-    ) public whenNotPaused returns (uint256) {
-        (, uint256[] memory balances,) = IVault(_vault).getPoolTokens(poolId);
-        IERC20 tokenIn = indexIn == _securityIndex ? IERC20(_security) : IERC20(_currency);
-        IERC20 tokenOut = indexOut == _securityIndex ? IERC20(_security) : IERC20(_currency);
-        SwapRequest memory request;
-        request.kind = kind;
-        request.tokenIn = tokenIn;
-        request.tokenOut = tokenOut;
-        request.amount = amount;
-        request.userData = data;
-        request.from = msg.sender;
-
-        require (request.kind == IVault.SwapKind.GIVEN_IN || request.kind == IVault.SwapKind.GIVEN_OUT, "Invalid swap");
-        require(request.tokenOut == IERC20(_currency) ||
-                request.tokenOut == IERC20(_security) ||
-                request.tokenIn == IERC20(_currency) ||
-                request.tokenIn == IERC20(_security), "Invalid swapped tokens");
-
-        uint256[] memory scalingFactors = _scalingFactors();
-        _upscaleArray(balances, scalingFactors);
-        IOrder.Params memory params;
-
-        string memory otype;
-        uint256 tp;
-        bytes32 orderRef;
-
-        if (request.kind == IVault.SwapKind.GIVEN_IN) 
-            request.amount = _upscale(request.amount, scalingFactors[indexIn]);
-        else if (request.kind == IVault.SwapKind.GIVEN_OUT)
-            request.amount = _upscale(request.amount, scalingFactors[indexOut]);
-
-        if(request.tokenIn==IERC20(_currency) && request.kind==IVault.SwapKind.GIVEN_IN)
-            require(balances[_currencyIndex]>=request.amount, "Insufficient currency balance");
-        else if(request.tokenIn==IERC20(_security) && request.kind==IVault.SwapKind.GIVEN_IN)
-            require(balances[_securityIndex]>=request.amount, "Insufficient security balance");
-
-        if(request.userData.length!=0){
-            (otype, tp) = abi.decode(request.userData, (string, uint256));  
-            if(bytes(otype).length!=0){               
-                if(tp!=0){ //any order where price is indicated is a limit order
-                    params = IOrder.Params({
-                        trade: IOrder.OrderType.Limit,
-                        price: tp 
-                    });                    
+            //else if(otype == StringUtils.stringToBytes32("Limit") && tp!=0){ 
+            else if(otype == ref && tp!=0){ 
+                // is a limit order
+                params = IOrder.Params({
+                    trade: IOrder.OrderType.Limit,
+                    price: tp 
+                });                    
+            }
+            else if(otype.length == 32 && tp == 0){
+                //cancel order with otype having order ref [hash value]
+                if ((request.tokenOut == IERC20(_security) || request.tokenOut == IERC20(_currency)) 
+                        && request.tokenIn == IERC20(this) && request.kind==IVault.SwapKind.GIVEN_IN) {
+                    amount = _orderbook.cancelOrder(otype);
+                    require(amount==request.amount, "Insufficient pool tokens swapped in");
+                    // The amount given is for token out, the amount calculated is for token in
+                    return _downscaleDown(amount, scalingFactors[indexOut]);
+                } 
+                else
+                    _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
+            }
+            else if(otype.length == 32 && tp != 0){
+                //edit order with otype having order ref [hash value]
+                if (request.tokenIn == IERC20(this) && request.kind==IVault.SwapKind.GIVEN_IN) {
+                    //request amount (security, currency) is less than original amount, so some BPT is returned to the pool
+                    amount = _orderbook.editOrder(otype);
+                    amount = Math.sub(amount, request.amount);
+                    emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, tp, block.timestamp, otype);
+                    //security or currency tokens are paid out for bpt to be paid in
+                    return _downscaleDown(amount, scalingFactors[indexOut]);
+                } 
+                else if (request.tokenOut == IERC20(this) && request.kind==IVault.SwapKind.GIVEN_IN) {
+                    //request amount (security, currency) is more than original amount, so additional BPT is paid out from the pool
+                    amount = _orderbook.editOrder(otype);
+                    amount = Math.sub(request.amount, amount);
+                    require(balances[_bptIndex] >= amount, "INSUFFICIENT_INTERNAL_BALANCE");
+                    emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, tp, block.timestamp, otype);
+                    // bpt tokens equivalent to amount requested adjusted to existing amount are exiting the Pool, so we round down.
+                    return _downscaleDown(amount, scalingFactors[indexOut]);  
                 }
-                else{ //else, it is a market order
-                    params = IOrder.Params({
-                        trade: IOrder.OrderType.Market,
-                        price: 0 
-                    });  
-                }
-            }                  
-        }              
-
-        require(request.amount >= _minOrderSize, "Order below minimum size");        
-
-        if (request.tokenIn == IERC20(_security)) {
-            orderRef = _orderbook.newOrder(request, params);
-        } 
-        else if (request.tokenIn == IERC20(_currency)) {
-            orderRef = _orderbook.newOrder(request, params);
+                else
+                    _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
+            }
+            else
+                _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
+        }else{ 
+            //by default, any order without price specified is a market order
+            params = IOrder.Params({
+                trade: IOrder.OrderType.Market,
+                price: 0
+            });
         }
+
+        require(request.amount >= _MIN_ORDER_SIZE, "Order below minimum size");        
+
+        // requested tokens can either be security or cash but token out always need to be bpt 
+        if ((request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) 
+            && request.tokenOut == IERC20(this) && request.kind == IVault.SwapKind.GIVEN_IN) {
+            if(balances[_bptIndex] > request.amount){
+                balances[_bptIndex] = Math.sub(balances[_bptIndex], request.amount);
+                ref = _orderbook.newOrder(request, params);
+            }       
+            else
+                _revert(Errors.INSUFFICIENT_INTERNAL_BALANCE);
+        } 
         else {
             _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
         }
             
-        emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, params.price, block.timestamp, orderRef);
-    }
+        emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, params.price, block.timestamp, ref);
+        
+        // bpt tokens equivalent to amount requested are exiting the Pool, so we round down.
+        return _downscaleDown(request.amount, scalingFactors[indexOut]);
 
+    }
+    
     function _onInitializePool(
         bytes32,
         address sender,
@@ -309,10 +307,9 @@ contract CFDPool is BasePool, IGeneralPool {
         _require(sender == balancerManager, Errors.INVALID_INITIALIZATION);
         _require(recipient == payable(balancerManager), Errors.INVALID_INITIALIZATION);
 
-        uint256 bptAmountOut = _INITIAL_BPT_SUPPLY;
         uint256[] memory amountsIn = userData.joinKind();
         amountsIn[_currencyIndex] = _upscale(amountsIn[_currencyIndex], _scalingFactorCurrency);
-
+        uint256 bptAmountOut = _INITIAL_BPT_SUPPLY;
         return (bptAmountOut, amountsIn);
     }
 
@@ -339,7 +336,7 @@ contract CFDPool is BasePool, IGeneralPool {
         uint256,
         uint256[] memory,
         bytes memory userData
-    ) internal view override returns (uint256 bptAmountIn, uint256[] memory amountsOut) {
+    ) internal pure override returns (uint256 bptAmountIn, uint256[] memory amountsOut) {
         SecondaryPoolUserData.ExitKind kind = userData.exitKind();
         if (kind != SecondaryPoolUserData.ExitKind.EXACT_BPT_IN_FOR_TOKENS_OUT) {
             //usually exit pool reverts
@@ -351,19 +348,15 @@ contract CFDPool is BasePool, IGeneralPool {
 
     function _exit(uint256[] memory balances, bytes memory userData)
         private
-        view
+        pure
         returns (uint256, uint256[] memory)
     {   
-        // This proportional exit function is only enabled if the contract is paused, to provide users a way to
-        // retrieve their tokens in case of an emergency.
         uint256 bptAmountIn = userData.exactBptInForTokensOut();
         uint256[] memory amountsOut = new uint256[](balances.length);
         for (uint256 i = 0; i < balances.length; i++) {
-            // BPT is skipped as those tokens are not the LPs, but rather the preminted and undistributed amount.
-            if (i != _bptIndex) {
                 amountsOut[i] = balances[i];
-            }
         }
+
         return (bptAmountIn, amountsOut);
     }
 
@@ -381,7 +374,11 @@ contract CFDPool is BasePool, IGeneralPool {
         }
         else if(token == IERC20(_currency)){
             return _scalingFactorCurrency;
-        } else {
+        }
+        else if(token == this){
+            return FixedPoint.ONE;
+        }
+         else {
             _revert(Errors.INVALID_TOKEN);
         }
     }
