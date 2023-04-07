@@ -209,7 +209,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 );
                 tradeToReport.securityTraded = _downscaleDown(tradeToReport.securityTraded, _scalingFactorSecurity);
                 tradeToReport.currencyTraded = _downscaleDown(tradeToReport.currencyTraded, _scalingFactorCurrency);
-                ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
+                // ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
                 _orderbook.removeTrade(request.from, tp);
                 // The amount given is for token out, the amount calculated is for token in
                 return _downscaleDown(amount, scalingFactors[indexOut]);
@@ -267,49 +267,23 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
 
         require(request.amount >= _MIN_ORDER_SIZE, "Order below minimum size");
 
-        /*if(params.trade == IOrder.OrderType.Market){
+        if ((request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) 
+            && request.tokenOut == IERC20(this) && request.kind == IVault.SwapKind.GIVEN_IN) {
+            if(balances[_bptIndex] > request.amount){
+                balances[_bptIndex] = Math.sub(balances[_bptIndex], request.amount);
+                (ref, , ) = _orderbook.newOrder(request, params);
+            }       
+            else
+                _revert(Errors.INSUFFICIENT_INTERNAL_BALANCE);
+        } 
+        else {
+            _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
+        }
             
-            if (request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
-                (ref, tp, amount) = _orderbook.newOrder(request, params);                
-            } 
-            else{
-                _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
-            }
-
-            require(amount!=0, "Insufficient liquidity");
-            emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, params.price, tp, ref);
-            
-            if(request.kind == IVault.SwapKind.GIVEN_IN){
-                if (request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) {
-                    return _downscaleDown(amount, scalingFactors[indexOut]);
-                }
-            }
-            // TBD : is this block below required ?
-            //else if(request.kind == IVault.SwapKind.GIVEN_OUT){
-            //    if (request.tokenOut == IERC20(_security) || request.tokenOut == IERC20(_currency)) {
-            //        return _downscaleDown(amount, scalingFactors[indexIn]);
-            //    }
-            //}
-        }*/
-        //else{
-            if ((request.tokenIn == IERC20(_security) || request.tokenIn == IERC20(_currency)) 
-                && request.tokenOut == IERC20(this) && request.kind == IVault.SwapKind.GIVEN_IN) {
-                if(balances[_bptIndex] > request.amount){
-                    balances[_bptIndex] = Math.sub(balances[_bptIndex], request.amount);
-                    (ref, , ) = _orderbook.newOrder(request, params);
-                }       
-                else
-                    _revert(Errors.INSUFFICIENT_INTERNAL_BALANCE);
-            } 
-            else {
-                _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
-            }
-                
-            emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, params.price, block.timestamp, ref);
-            
-            // bpt tokens equivalent to amount requested are exiting the Pool, so we round down.
-            return _downscaleDown(request.amount, scalingFactors[indexOut]);
-        //}
+        emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, params.price, block.timestamp, ref);
+        
+        // bpt tokens equivalent to amount requested are exiting the Pool, so we round down.
+        return _downscaleDown(request.amount, scalingFactors[indexOut]);
     }
 
     function _onInitializePool(
