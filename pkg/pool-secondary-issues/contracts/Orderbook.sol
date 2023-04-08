@@ -73,7 +73,6 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
             status: IOrder.OrderStatus.Open,
             qty: _request.amount,
             party: _request.from
-            //price: _params.price
         });
         _orders[ref] = nOrder;        
         if(nOrder.tokenIn==_security)
@@ -92,7 +91,6 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
     ) public onlyOwner returns(uint256){
         require(_orders[ref].status == IOrder.OrderStatus.Open, "Order is already filled");
         require(_orders[ref].party == _request.from, "Sender is not order creator");
-        //_orders[ref].price = _price;
         bool buy = _orders[ref].tokenIn==_security ? false : true;
         editOrderbook(_price, ref, buy);
         uint256 qty = _orders[ref].qty;

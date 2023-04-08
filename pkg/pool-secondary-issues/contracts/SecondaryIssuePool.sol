@@ -41,7 +41,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
     uint256 private immutable _scalingFactorSecurity;
     uint256 private immutable _scalingFactorCurrency;
 
-    uint256 private _MIN_ORDER_SIZE;
+    uint256 private immutable _MIN_ORDER_SIZE;
 
     uint256 private immutable _bptIndex;
     uint256 private immutable _securityIndex;
@@ -227,6 +227,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                         && request.tokenIn == IERC20(this) && request.kind==IVault.SwapKind.GIVEN_IN) {
                     amount = _orderbook.cancelOrder(otype, request.from);
                     require(amount==request.amount, "Insufficient pool tokens swapped in");
+                    emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, tp, block.timestamp, otype);
                     // The amount given is for token out, the amount calculated is for token in
                     return _downscaleDown(amount, scalingFactors[indexOut]);
                 } 
