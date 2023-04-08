@@ -272,7 +272,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
             && request.tokenOut == IERC20(this) && request.kind == IVault.SwapKind.GIVEN_IN) {
             if(balances[_bptIndex] > request.amount){
                 balances[_bptIndex] = Math.sub(balances[_bptIndex], request.amount);
-                (ref, , ) = _orderbook.newOrder(request, params);
+                ref = _orderbook.newOrder(request, params);
             }       
             else
                 _revert(Errors.INSUFFICIENT_INTERNAL_BALANCE);
