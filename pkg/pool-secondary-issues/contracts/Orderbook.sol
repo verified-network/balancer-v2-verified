@@ -274,17 +274,17 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         return (oIndex);
     }
 
-    function getOrder(bytes32 _ref) external view returns(IOrder.order memory){
+    function getOrder(bytes32 _ref) external override view returns(IOrder.order memory){
         require(msg.sender==owner() || msg.sender==_balancerManager || msg.sender==_orders[_ref].party, "Unauthorized access to orders");
         return _orders[_ref];
     }
 
-    function getTrade(address _party, uint256 _timestamp) external view returns(ITrade.trade memory){
+    function getTrade(address _party, uint256 _timestamp) external override view returns(ITrade.trade memory){
         require(msg.sender==owner() || msg.sender==_party, "Unauthorized access to trades");
         return _tradeRefs[_party][_timestamp];
     }
 
-    function getTrades() external view returns(uint256[] memory){
+    function getTrades() external override view returns(uint256[] memory){
         return _trades[msg.sender];
     }
 
@@ -296,7 +296,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
     }
     
     //remove this function using unbounded for loop, use the subgraph instead
-    function getOrderRef() external view returns (bytes32[] memory) {
+    function getOrderRef() external override view returns (bytes32[] memory) {
         bytes32[] memory refs = new bytes32[](_sellOrderbook.length);
         uint256 i;
         for(uint256 j=0; j<_sellOrderbook.length; j++){
