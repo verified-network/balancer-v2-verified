@@ -18,12 +18,12 @@ import "@balancer-labs/v2-solidity-utils/contracts/helpers/ERC20Helpers.sol";
 import "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/SafeERC20.sol";
 import "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
 
-import "@balancer-labs/v2-interfaces/contracts/pool-secondary/SecondaryPoolUserData.sol";
+import "@balancer-labs/v2-interfaces/contracts/pool-margin/MarginPoolUserData.sol";
 import "@balancer-labs/v2-interfaces/contracts/vault/IGeneralPool.sol";
 import "@balancer-labs/v2-interfaces/contracts/solidity-utils/helpers/BalancerErrors.sol";
 
 contract MarginTradingPool is BasePool, IGeneralPool {
-    using SecondaryPoolUserData for bytes;
+    using MarginPoolUserData for bytes;
     using SafeERC20 for IERC20;
     using FixedPoint for uint256;
     using StringUtils for string;
@@ -41,7 +41,9 @@ contract MarginTradingPool is BasePool, IGeneralPool {
     uint256 private immutable _scalingFactorSecurity;
     uint256 private immutable _scalingFactorCurrency;
 
-    uint256 private _minOrderSize;
+    uint256 private immutable _margin;
+    uint256 private immutable _collateral;
+    uint256 private immutable _minOrderSize;
     uint256 private immutable _swapFee;
 
     uint256 private immutable _bptIndex;
@@ -63,9 +65,9 @@ contract MarginTradingPool is BasePool, IGeneralPool {
         uint256 executionDate
     );
 
-    event Offer(address indexed security, uint256 minOrderSize, address currency, address orderBook, address issueManager);  
+    event Offer(address indexed security, uint256 minOrderSize, address currency, uint256 margin, uint256 collateral, address orderBook, address issueManager);  
 
-    event OrderBook(address creator, address tokenIn, address tokenOut, uint256 amountOffered, uint256 priceOffered, uint256 timestamp, bytes32 orderRef);
+    event OrderBook(address creator, address tokenIn, address tokenOut, uint256 amountOffered, uint256 priceOffered, uint256 stoplossPrice, uint256 timestamp, bytes32 orderRef);
     
     constructor(
         IVault vault,
@@ -107,6 +109,8 @@ contract MarginTradingPool is BasePool, IGeneralPool {
         _scalingFactorSecurity = _computeScalingFactor(IERC20(factoryPoolParams.security));
         _scalingFactorCurrency = _computeScalingFactor(IERC20(factoryPoolParams.currency));
 
+        _margin = factoryPoolParams.margin;
+        _collateral = factoryPoolParams.collateral;
         _minOrderSize = factoryPoolParams.minOrderSize;
 
         //swap fee
@@ -116,7 +120,7 @@ contract MarginTradingPool is BasePool, IGeneralPool {
 
         _orderbook = new Orderbook(payable(owner), factoryPoolParams.security, factoryPoolParams.currency, address(this));
 
-        emit Offer(factoryPoolParams.security, factoryPoolParams.minOrderSize, factoryPoolParams.currency, address(_orderbook), owner);
+        emit Offer(factoryPoolParams.security, factoryPoolParams.minOrderSize, factoryPoolParams.currency, factoryPoolParams.margin, factoryPoolParams.collateral, address(_orderbook), owner);
     }
 
     function getSecurity() external view returns (address) {
@@ -168,7 +172,6 @@ contract MarginTradingPool is BasePool, IGeneralPool {
 
         if(request.userData.length!=0){
             (otype, tp) = abi.decode(request.userData, (bytes32, uint256));
-            //if(otype == StringUtils.stringToBytes32("")){ 
             ref = "Limit";    
             if(otype == ""){          
                 ITrade.trade memory tradeToReport = _orderbook.getTrade(request.from, tp);
@@ -213,16 +216,21 @@ contract MarginTradingPool is BasePool, IGeneralPool {
                 //ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
                 _orderbook.removeTrade(request.from, tp);
                 // The amount given is for token out, the amount calculated is for token in
-
                 return _downscaleDown(amount, scalingFactors[indexOut]);
             }
-            //else if(otype == StringUtils.stringToBytes32("Limit") && tp!=0){ 
-            else if(otype == ref && tp!=0){ 
-                // is a limit order
+            else if(otype == keccak256(abi.encodePacked("Limit")) && tp!=0){ 
+                //in a limit order, price is specified by the user
                 params = IOrder.Params({
                     trade: IOrder.OrderType.Limit,
                     price: tp 
                 });                    
+            }
+            else if(otype == keccak256(abi.encodePacked("Market")) && tp!=0){
+                //market orders carry the last settled price from the Dapp 
+                params = IOrder.Params({
+                    trade: IOrder.OrderType.Market,
+                    price: tp
+                });
             }
             else if(otype.length == 32 && tp == 0){
                 //cancel order with otype having order ref [hash value]
@@ -230,6 +238,7 @@ contract MarginTradingPool is BasePool, IGeneralPool {
                         && request.tokenIn == IERC20(this) && request.kind==IVault.SwapKind.GIVEN_IN) {
                     amount = _orderbook.cancelOrder(otype);
                     require(amount==request.amount, "Insufficient pool tokens swapped in");
+                    emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, tp, amount, block.timestamp, otype);
                     // The amount given is for token out, the amount calculated is for token in
                     return _downscaleDown(amount, scalingFactors[indexOut]);
                 } 
@@ -239,19 +248,23 @@ contract MarginTradingPool is BasePool, IGeneralPool {
             else if(otype.length == 32 && tp != 0){
                 //edit order with otype having order ref [hash value]
                 if (request.tokenIn == IERC20(this) && request.kind==IVault.SwapKind.GIVEN_IN) {
+                    //calculate stop loss price with constraints of margin and collateral obligation
+                    amount = FixedPoint.sub(tp, FixedPoint.mulDown(tp, FixedPoint.add(_margin, _collateral)));
+                    emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, tp, amount, block.timestamp, otype);
                     //request amount (security, currency) is less than original amount, so some BPT is returned to the pool
                     amount = _orderbook.editOrder(otype);
-                    amount = Math.sub(amount, request.amount);
-                    emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, tp, block.timestamp, otype);
+                    amount = Math.sub(amount, request.amount);                    
                     //security or currency tokens are paid out for bpt to be paid in
                     return _downscaleDown(amount, scalingFactors[indexOut]);
                 } 
                 else if (request.tokenOut == IERC20(this) && request.kind==IVault.SwapKind.GIVEN_IN) {
+                    //calculate stop loss price with constraints of margin and collateral obligation
+                    amount = FixedPoint.sub(tp, FixedPoint.mulDown(tp, FixedPoint.add(_margin, _collateral)));
+                    emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, tp, amount, block.timestamp, otype);
                     //request amount (security, currency) is more than original amount, so additional BPT is paid out from the pool
                     amount = _orderbook.editOrder(otype);
                     amount = Math.sub(request.amount, amount);
-                    require(balances[_bptIndex] >= amount, "INSUFFICIENT_INTERNAL_BALANCE");
-                    emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, tp, block.timestamp, otype);
+                    require(balances[_bptIndex] >= amount, "INSUFFICIENT_INTERNAL_BALANCE");                    
                     // bpt tokens equivalent to amount requested adjusted to existing amount are exiting the Pool, so we round down.
                     return _downscaleDown(amount, scalingFactors[indexOut]);  
                 }
@@ -260,13 +273,8 @@ contract MarginTradingPool is BasePool, IGeneralPool {
             }
             else
                 _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
-        }else{ 
-            //by default, any order without price specified is a market order
-            params = IOrder.Params({
-                trade: IOrder.OrderType.Market,
-                price: 0
-            });
-        }
+        }else
+             _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
 
         require(request.amount >= _minOrderSize, "Order below minimum size");        
 
@@ -276,6 +284,8 @@ contract MarginTradingPool is BasePool, IGeneralPool {
             if(balances[_bptIndex] > request.amount){
                 balances[_bptIndex] = Math.sub(balances[_bptIndex], request.amount);
                 ref = _orderbook.newOrder(request, params);
+                //calculate stop loss price with constraints of margin and collateral obligation
+                amount = FixedPoint.sub(params.price, FixedPoint.mulDown(params.price, FixedPoint.add(_margin, _collateral)));
             }       
             else
                 _revert(Errors.INSUFFICIENT_INTERNAL_BALANCE);
@@ -284,11 +294,10 @@ contract MarginTradingPool is BasePool, IGeneralPool {
             _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
         }
             
-        emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, params.price, block.timestamp, ref);
+        emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, params.price, amount, block.timestamp, ref);
         
         // bpt tokens equivalent to amount requested are exiting the Pool, so we round down.
         return _downscaleDown(request.amount, scalingFactors[indexOut]);
-
     }
     
     function _onInitializePool(
@@ -333,8 +342,8 @@ contract MarginTradingPool is BasePool, IGeneralPool {
         uint256[] memory,
         bytes memory userData
     ) internal pure override returns (uint256 bptAmountIn, uint256[] memory amountsOut) {
-        SecondaryPoolUserData.ExitKind kind = userData.exitKind();
-        if (kind != SecondaryPoolUserData.ExitKind.EXACT_BPT_IN_FOR_TOKENS_OUT) {
+        MarginPoolUserData.ExitKind kind = userData.exitKind();
+        if (kind != MarginPoolUserData.ExitKind.EXACT_BPT_IN_FOR_TOKENS_OUT) {
             //usually exit pool reverts
             _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
         } else {
