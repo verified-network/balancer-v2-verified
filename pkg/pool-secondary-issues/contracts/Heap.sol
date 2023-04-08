@@ -11,10 +11,10 @@ abstract contract Heap {
         bytes32 ref;
     }
 
-    Node[] _buyOrderbook;
+    Node[] internal _buyOrderbook;
     mapping(bytes32 => uint256) private _buyIndex;
 
-    Node[] _sellOrderbook;
+    Node[] internal _sellOrderbook;
     mapping(bytes32 => uint256) private _sellIndex;
 
     // Inserts a buy order into heap
@@ -77,12 +77,12 @@ abstract contract Heap {
 
     // removeBuyOrder pops off the root element of the max heap and rebalances the heap
     // This function is to be used when we need to find the max buy price for a new sell order
-    function removeBuyOrder() internal returns (bytes32) {
+    function removeBuyOrder() internal returns (Node memory) {
         // Ensure the heap exists
         require(_buyOrderbook.length > 0, "Orderbook is empty");
 
         // take the root ref of the heap
-        bytes32 toReturn = _buyOrderbook[0].ref;
+        Node memory toReturn = _buyOrderbook[0];
 
         // Takes the last element of the array and put it at the root
         _buyOrderbook[0] = _buyOrderbook[Math.sub(_buyOrderbook.length, 1)];
@@ -105,12 +105,12 @@ abstract contract Heap {
 
     // removeSellOrder pops off the root element of the min heap and rebalances the heap
     // This function is to be used when we need to find the min sell price for a new buy order
-    function removeSellOrder() internal returns (bytes32) {
+    function removeSellOrder() internal returns (Node memory) {
         // Ensure the heap exists
         require(_sellOrderbook.length > 0, "Orderbook is empty");
 
         // take the root ref of the heap
-        bytes32 toReturn = _sellOrderbook[0].ref;
+        Node memory toReturn = _sellOrderbook[0];
 
         // Takes the last element of the array and put it at the root
         _sellOrderbook[0] = _sellOrderbook[Math.sub(_sellOrderbook.length, 1)];
