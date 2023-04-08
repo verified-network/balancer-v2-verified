@@ -1,4 +1,4 @@
-// Interface for creating secondary trading pools and settling secondary trades
+// Interface for creating margin trading pools and settling offchain orders matched
 //"SPDX-License-Identifier: BUSL1.1"
 
 pragma solidity 0.7.1;
@@ -7,10 +7,8 @@ pragma experimental ABIEncoderV2;
 import "./ITrade.sol";
 import "./IMarginOrder.sol";
 
-interface ISettlor {
+interface IMarginManager {
 
     function requestSettlement(ITrade.trade memory tradeToReport, IMarginOrder orderbook) external;
-
-    function getTrade(bytes32 ref) external view returns(uint256 b, uint256 a);
 
 }

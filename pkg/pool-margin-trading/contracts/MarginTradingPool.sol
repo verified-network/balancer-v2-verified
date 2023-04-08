@@ -5,21 +5,21 @@
 pragma solidity ^0.7.0;
 pragma experimental ABIEncoderV2;
 
-import "./interfaces/IOrder.sol";
 import "./interfaces/ITrade.sol";
-import "./interfaces/ISettlor.sol";
+import "./interfaces/IMarginOrder.sol";
+import "./interfaces/IMarginManager.sol";
 import "./interfaces/IMarginTradingPoolFactory.sol";
 import "./utilities/StringUtils.sol";
 import "./Orderbook.sol";
 
 import "@balancer-labs/v2-pool-utils/contracts/BasePool.sol";
 
+import "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
 import "@balancer-labs/v2-solidity-utils/contracts/helpers/ERC20Helpers.sol";
 import "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/SafeERC20.sol";
-import "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
 
-import "@balancer-labs/v2-interfaces/contracts/pool-margin/MarginPoolUserData.sol";
 import "@balancer-labs/v2-interfaces/contracts/vault/IGeneralPool.sol";
+import "@balancer-labs/v2-interfaces/contracts/pool-margin/MarginPoolUserData.sol";
 import "@balancer-labs/v2-interfaces/contracts/solidity-utils/helpers/BalancerErrors.sol";
 
 contract MarginTradingPool is BasePool, IGeneralPool {
@@ -152,7 +152,7 @@ contract MarginTradingPool is BasePool, IGeneralPool {
         uint256[] memory scalingFactors = _scalingFactors();
         _upscaleArray(balances, scalingFactors);
         
-        IOrder.Params memory params;
+        IMarginOrder.Params memory params;
         bytes32 otype;
         uint256 tp;
         bytes32 ref;
@@ -175,6 +175,13 @@ contract MarginTradingPool is BasePool, IGeneralPool {
             ref = "Limit";    
             if(otype == ""){          
                 ITrade.trade memory tradeToReport = _orderbook.getTrade(request.from, tp);
+                
+                //the call is to claim margin or collateral
+                if(tradeToReport.partyAddress==address(0x0) && request.tokenOut==IERC20(_currency) 
+                    && request.tokenIn==IERC20(this) && request.kind==IVault.SwapKind.GIVEN_IN){
+                    return _downscaleDown(request.amount, scalingFactors[indexOut]);        
+                }
+                //else, the call is to claim currency or traded security amount, leaving aside margin and collateral 
                 ref = _orderbook.getOrder(tradeToReport.partyAddress == request.from 
                                             ? tradeToReport.partyRef : tradeToReport.counterpartyRef)
                                             .tokenIn==_security ? bytes32("security") : bytes32("currency");                
@@ -213,22 +220,22 @@ contract MarginTradingPool is BasePool, IGeneralPool {
                 );
                 tradeToReport.securityTraded = _downscaleDown(tradeToReport.securityTraded, _scalingFactorSecurity);
                 tradeToReport.currencyTraded = _downscaleDown(tradeToReport.currencyTraded, _scalingFactorCurrency);
-                //ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
+                IMarginManager(_balancerManager).requestSettlement(tradeToReport, _orderbook);
                 _orderbook.removeTrade(request.from, tp);
                 // The amount given is for token out, the amount calculated is for token in
                 return _downscaleDown(amount, scalingFactors[indexOut]);
             }
             else if(otype == keccak256(abi.encodePacked("Limit")) && tp!=0){ 
                 //in a limit order, price is specified by the user
-                params = IOrder.Params({
-                    trade: IOrder.OrderType.Limit,
+                params = IMarginOrder.Params({
+                    trade: IMarginOrder.OrderType.Limit,
                     price: tp 
                 });                    
             }
             else if(otype == keccak256(abi.encodePacked("Market")) && tp!=0){
                 //market orders carry the last settled price from the Dapp 
-                params = IOrder.Params({
-                    trade: IOrder.OrderType.Market,
+                params = IMarginOrder.Params({
+                    trade: IMarginOrder.OrderType.Market,
                     price: tp
                 });
             }
@@ -248,7 +255,7 @@ contract MarginTradingPool is BasePool, IGeneralPool {
             else if(otype.length == 32 && tp != 0){
                 //edit order with otype having order ref [hash value]
                 if (request.tokenIn == IERC20(this) && request.kind==IVault.SwapKind.GIVEN_IN) {
-                    //calculate stop loss price with constraints of margin and collateral obligation
+                    //calculate stop loss price (amount) with constraints of margin and collateral obligation
                     amount = FixedPoint.sub(tp, FixedPoint.mulDown(tp, FixedPoint.add(_margin, _collateral)));
                     emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, tp, amount, block.timestamp, otype);
                     //request amount (security, currency) is less than original amount, so some BPT is returned to the pool
@@ -258,7 +265,7 @@ contract MarginTradingPool is BasePool, IGeneralPool {
                     return _downscaleDown(amount, scalingFactors[indexOut]);
                 } 
                 else if (request.tokenOut == IERC20(this) && request.kind==IVault.SwapKind.GIVEN_IN) {
-                    //calculate stop loss price with constraints of margin and collateral obligation
+                    //calculate stop loss price (amount) with constraints of margin and collateral obligation
                     amount = FixedPoint.sub(tp, FixedPoint.mulDown(tp, FixedPoint.add(_margin, _collateral)));
                     emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, tp, amount, block.timestamp, otype);
                     //request amount (security, currency) is more than original amount, so additional BPT is paid out from the pool
@@ -284,7 +291,7 @@ contract MarginTradingPool is BasePool, IGeneralPool {
             if(balances[_bptIndex] > request.amount){
                 balances[_bptIndex] = Math.sub(balances[_bptIndex], request.amount);
                 ref = _orderbook.newOrder(request, params);
-                //calculate stop loss price with constraints of margin and collateral obligation
+                //calculate stop loss price (amount) with constraints of margin and collateral obligation
                 amount = FixedPoint.sub(params.price, FixedPoint.mulDown(params.price, FixedPoint.add(_margin, _collateral)));
             }       
             else
