@@ -113,6 +113,7 @@ contract Orderbook is IMarginOrder, ITrade, Ownable{
     }
     
     function reportTrade(bytes32 _ref, bytes32 _cref, uint256 securityTraded, uint256 currencyTraded) public {
+        require(msg.sender==_balancerManager, "Unauthorized to report trade");
         _orders[_ref].status = IMarginOrder.OrderStatus.Filled;
         _orders[_cref].status = IMarginOrder.OrderStatus.Filled;
         _previousTs = _previousTs + 1;
@@ -150,21 +151,6 @@ contract Orderbook is IMarginOrder, ITrade, Ownable{
             if(_trades[_party][i]==_timestamp)
                 delete _trades[_party][i];
         }
-    }
-
-    function revertTrade(
-        bytes32 _orderRef
-    ) external override {
-        require(msg.sender==_balancerManager || msg.sender==owner(), "Unauthorized access");
-        _orders[_orderRef].status = OrderStatus.Open;
-    }
-
-    function orderFilled(bytes32 partyRef, bytes32 counterpartyRef, uint256 executionDate) external override {
-        require(msg.sender==_balancerManager || msg.sender==owner(), "Unauthorized access");
-        delete _orders[partyRef];
-        delete _orders[counterpartyRef];
-        delete _tradeRefs[_orders[partyRef].party][executionDate];
-        delete _tradeRefs[_orders[counterpartyRef].party][executionDate];
     }
 
 }

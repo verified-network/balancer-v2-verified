@@ -43,8 +43,4 @@ interface IMarginOrder {
 
     function getOrderRef() external view returns (bytes32[] memory);
 
-    function orderFilled(bytes32 partyRef, bytes32 counterpartyRef, uint256 executionDate) external;
-
-    function revertTrade(bytes32 _orderRef) external;
-    
 }

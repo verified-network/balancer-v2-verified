@@ -7,7 +7,6 @@ pragma experimental ABIEncoderV2;
 
 import "./interfaces/ITrade.sol";
 import "./interfaces/IMarginOrder.sol";
-import "./interfaces/IMarginManager.sol";
 import "./interfaces/IMarginTradingPoolFactory.sol";
 import "./utilities/StringUtils.sol";
 import "./Orderbook.sol";
@@ -176,54 +175,55 @@ contract MarginTradingPool is BasePool, IGeneralPool {
             if(otype == ""){          
                 ITrade.trade memory tradeToReport = _orderbook.getTrade(request.from, tp);
                 
-                //the call is to claim margin or collateral
+                //if the call is to claim margin or collateral, trade report will be empty
                 if(tradeToReport.partyAddress==address(0x0) && request.tokenOut==IERC20(_currency) 
                     && request.tokenIn==IERC20(this) && request.kind==IVault.SwapKind.GIVEN_IN){
                     return _downscaleDown(request.amount, scalingFactors[indexOut]);        
                 }
-                //else, the call is to claim currency or traded security amount, leaving aside margin and collateral 
-                ref = _orderbook.getOrder(tradeToReport.partyAddress == request.from 
-                                            ? tradeToReport.partyRef : tradeToReport.counterpartyRef)
-                                            .tokenIn==_security ? bytes32("security") : bytes32("currency");                
-                
-                if(request.tokenOut==IERC20(_security) && request.kind==IVault.SwapKind.GIVEN_IN){
-                    amount = tradeToReport.securityTraded;
-                    require(tradeToReport.currencyTraded==request.amount, "Insufficient pool tokens swapped in for security");
-                }
-                else if(request.tokenOut==IERC20(_currency) && request.kind==IVault.SwapKind.GIVEN_IN){
-                    amount = tradeToReport.currencyTraded;
-                    require(tradeToReport.securityTraded==request.amount, "Insufficient pool tokens swapped in for currency");
-                }
-                else
-                    _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
+                else{
+                    //else, the call is to claim currency or traded security amount  
+                    ref = _orderbook.getOrder(tradeToReport.partyAddress == request.from 
+                                                ? tradeToReport.partyRef : tradeToReport.counterpartyRef)
+                                                .tokenIn==_security ? bytes32("security") : bytes32("currency");                
+                    
+                    if(request.tokenOut==IERC20(_security) && request.kind==IVault.SwapKind.GIVEN_IN){
+                        amount = tradeToReport.securityTraded;
+                        require(tradeToReport.currencyTraded==request.amount, "Insufficient pool tokens swapped in for security");
+                    }
+                    else if(request.tokenOut==IERC20(_currency) && request.kind==IVault.SwapKind.GIVEN_IN){
+                        amount = tradeToReport.currencyTraded;
+                        require(tradeToReport.securityTraded==request.amount, "Insufficient pool tokens swapped in for currency");
+                    }
+                    else
+                        _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
 
-                bytes32 orderType;
-                if (request.tokenOut == IERC20(_currency) && request.tokenIn == IERC20(this)) {
-                    orderType = "Sell";
-                } 
-                else if (request.tokenOut == IERC20(_security) && request.tokenIn == IERC20(this)) {
-                    orderType = "Buy";
-                }
-                else
-                    _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
+                    bytes32 orderType;
+                    if (request.tokenOut == IERC20(_currency) && request.tokenIn == IERC20(this)) {
+                        orderType = "Sell";
+                    } 
+                    else if (request.tokenOut == IERC20(_security) && request.tokenIn == IERC20(this)) {
+                        orderType = "Buy";
+                    }
+                    else
+                        _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
 
-                emit TradeReport(
-                    _security,
-                    ref,
-                    ref==bytes32("security") ? _orderbook.getOrder(tradeToReport.partyRef).party : _orderbook.getOrder(tradeToReport.counterpartyRef).party,
-                    ref==bytes32("currency") ? _orderbook.getOrder(tradeToReport.partyRef).party : _orderbook.getOrder(tradeToReport.counterpartyRef).party,
-                    orderType,
-                    tradeToReport.currencyTraded.divDown(tradeToReport.securityTraded),                    
-                    _currency,
-                    amount,
-                    tradeToReport.dt
-                );
-                tradeToReport.securityTraded = _downscaleDown(tradeToReport.securityTraded, _scalingFactorSecurity);
-                tradeToReport.currencyTraded = _downscaleDown(tradeToReport.currencyTraded, _scalingFactorCurrency);
-                IMarginManager(_balancerManager).requestSettlement(tradeToReport, _orderbook);
-                _orderbook.removeTrade(request.from, tp);
-                // The amount given is for token out, the amount calculated is for token in
-                return _downscaleDown(amount, scalingFactors[indexOut]);
+                    emit TradeReport(
+                        _security,
+                        ref,
+                        ref==bytes32("security") ? _orderbook.getOrder(tradeToReport.partyRef).party : _orderbook.getOrder(tradeToReport.counterpartyRef).party,
+                        ref==bytes32("currency") ? _orderbook.getOrder(tradeToReport.partyRef).party : _orderbook.getOrder(tradeToReport.counterpartyRef).party,
+                        orderType,
+                        tradeToReport.currencyTraded.divDown(tradeToReport.securityTraded),                    
+                        _currency,
+                        amount,
+                        tradeToReport.dt
+                    );
+                    tradeToReport.securityTraded = _downscaleDown(tradeToReport.securityTraded, _scalingFactorSecurity);
+                    tradeToReport.currencyTraded = _downscaleDown(tradeToReport.currencyTraded, _scalingFactorCurrency);
+                    _orderbook.removeTrade(request.from, tp);
+                    // The amount given is for token out, the amount calculated is for token in
+                    return _downscaleDown(amount, scalingFactors[indexOut]);
+                }
             }
             else if(otype == keccak256(abi.encodePacked("Limit")) && tp!=0){ 
                 //in a limit order, price is specified by the user
@@ -253,11 +253,17 @@ contract MarginTradingPool is BasePool, IGeneralPool {
                     _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);
             }
             else if(otype.length == 32 && tp != 0){
+                //leave aside request amount to cover margin and collateral claims if currency is paid in to buy a security 
+                if(request.tokenIn == IERC20(_currency))
+                    request.amount = FixedPoint.sub(request.amount, FixedPoint.mulDown(request.amount, FixedPoint.add(_margin, _collateral)));
                 //edit order with otype having order ref [hash value]
                 if (request.tokenIn == IERC20(this) && request.kind==IVault.SwapKind.GIVEN_IN) {
                     //calculate stop loss price (amount) with constraints of margin and collateral obligation
                     amount = FixedPoint.sub(tp, FixedPoint.mulDown(tp, FixedPoint.add(_margin, _collateral)));
                     emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, tp, amount, block.timestamp, otype);
+                    //calculate the actual request amount
+                    if(request.tokenIn == IERC20(_currency))
+                        request.amount = FixedPoint.add(request.amount, FixedPoint.sub(1e18, FixedPoint.add(_margin, _collateral)));
                     //request amount (security, currency) is less than original amount, so some BPT is returned to the pool
                     amount = _orderbook.editOrder(otype);
                     amount = Math.sub(amount, request.amount);                    
@@ -268,6 +274,9 @@ contract MarginTradingPool is BasePool, IGeneralPool {
                     //calculate stop loss price (amount) with constraints of margin and collateral obligation
                     amount = FixedPoint.sub(tp, FixedPoint.mulDown(tp, FixedPoint.add(_margin, _collateral)));
                     emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, tp, amount, block.timestamp, otype);
+                    //calculate the actual request amount
+                    if(request.tokenIn == IERC20(_currency))
+                        request.amount = FixedPoint.add(request.amount, FixedPoint.sub(1e18, FixedPoint.add(_margin, _collateral)));
                     //request amount (security, currency) is more than original amount, so additional BPT is paid out from the pool
                     amount = _orderbook.editOrder(otype);
                     amount = Math.sub(request.amount, amount);
@@ -290,9 +299,13 @@ contract MarginTradingPool is BasePool, IGeneralPool {
             && request.tokenOut == IERC20(this) && request.kind == IVault.SwapKind.GIVEN_IN) {
             if(balances[_bptIndex] > request.amount){
                 balances[_bptIndex] = Math.sub(balances[_bptIndex], request.amount);
-                ref = _orderbook.newOrder(request, params);
                 //calculate stop loss price (amount) with constraints of margin and collateral obligation
                 amount = FixedPoint.sub(params.price, FixedPoint.mulDown(params.price, FixedPoint.add(_margin, _collateral)));
+                //leave aside request amount to cover margin and collateral claims if currency is paid in to buy a security 
+                if(request.tokenIn == IERC20(_currency))
+                    request.amount = FixedPoint.sub(request.amount, FixedPoint.mulDown(request.amount, FixedPoint.add(_margin, _collateral)));
+                //register order in orderbook
+                ref = _orderbook.newOrder(request, params);
             }       
             else
                 _revert(Errors.INSUFFICIENT_INTERNAL_BALANCE);
@@ -303,6 +316,9 @@ contract MarginTradingPool is BasePool, IGeneralPool {
             
         emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, params.price, amount, block.timestamp, ref);
         
+        // adding back request amount to send back correct amount of bpt
+        if(request.tokenIn == IERC20(_currency))
+            request.amount = FixedPoint.add(request.amount, FixedPoint.sub(1e18, FixedPoint.add(_margin, _collateral)));
         // bpt tokens equivalent to amount requested are exiting the Pool, so we round down.
         return _downscaleDown(request.amount, scalingFactors[indexOut]);
     }
