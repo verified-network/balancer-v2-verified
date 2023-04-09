@@ -112,7 +112,7 @@ contract Orderbook is IMarginOrder, ITrade, Ownable{
         return _orders[ref].qty;
     }
     
-    function reportTrade(bytes32 _ref, bytes32 _cref, uint256 securityTraded, uint256 currencyTraded) public {
+    function reportTrade(bytes32 _ref, bytes32 _cref, uint256 securityTraded, uint256 currencyTraded) override external {
         require(msg.sender==_balancerManager, "Unauthorized to report trade");
         _orders[_ref].status = IMarginOrder.OrderStatus.Filled;
         _orders[_cref].status = IMarginOrder.OrderStatus.Filled;

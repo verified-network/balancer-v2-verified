@@ -43,4 +43,6 @@ interface IMarginOrder {
 
     function getOrderRef() external view returns (bytes32[] memory);
 
+    function reportTrade(bytes32 _ref, bytes32 _cref, uint256 securityTraded, uint256 currencyTraded) external;
+
 }

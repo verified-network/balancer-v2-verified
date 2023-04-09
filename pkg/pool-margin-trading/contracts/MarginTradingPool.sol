@@ -122,6 +122,18 @@ contract MarginTradingPool is BasePool, IGeneralPool {
         emit Offer(factoryPoolParams.security, factoryPoolParams.minOrderSize, factoryPoolParams.currency, factoryPoolParams.margin, factoryPoolParams.collateral, address(_orderbook), owner);
     }
 
+    function getMargin() external view returns(uint256){
+        return _margin;
+    }
+
+    function getCollateral() external view returns(uint256){
+        return _collateral;
+    }
+
+    function getOrderbook() external view returns (address) {
+        return address(_orderbook);
+    }
+
     function getSecurity() external view returns (address) {
         return _security;
     }

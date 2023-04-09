@@ -13,5 +13,11 @@ interface IMarginTradingPool {
     function getCurrency() external view returns (address);
 
     function getMinOrderSize() external view returns(uint256);
+
+    function getOrderbook() external view returns (address);
+
+    function getMargin() external view returns(uint256);
+
+    function getCollateral() external view returns(uint256);
 }
 
