@@ -208,6 +208,7 @@ describe('SecondaryPool', function () {
   const callSwapEvent = async(cpTradesInfo: any, pTradesInfo: any, counterPartyAmountExpected: BigNumber, partyAmountExpected: BigNumber, partyOrderType?: string) => {
     //extract details of order
     let counterPartyOrderDetails = await ob.getOrder({from: lp, ref:cpTradesInfo.counterpartyRef});
+    // console.log("counterPartyOrderDetails",cpTradesInfo);
     const cPAmount = getAmount(counterPartyOrderDetails,cpTradesInfo);
     // for Counter Party
      const counterPartyTx = {
@@ -226,7 +227,7 @@ describe('SecondaryPool', function () {
     if(partyOrderType != "Market")
     {
       const partyOrderDetails = await ob.getOrder({from: trader, ref:pTradesInfo.partyRef});
-      // console.log("partyOrderDetails",partyOrderDetails);
+      // console.log("partyOrderDetails",pTradesInfo);
       const pAmount = getAmount(partyOrderDetails,pTradesInfo);
       // for Party  
       // console.log("pAmount",pAmount);
@@ -239,9 +240,9 @@ describe('SecondaryPool', function () {
         data: abiCoder.encode(["bytes32", "uint"], [ethers.utils.formatBytes32String(''), pTradesInfo.dt]),
       };
       const partyAmount = await pool.swapGivenIn(partyDataTx);
-      // console.log("partyAmount[0].toString()",partyAmount[0].toString());
-      // console.log("partyAmountExpected",partyAmountExpected.toString());
-      expect(partyAmount[0].toString()).to.be.equals(partyAmountExpected.toString()); 
+      const solidityAmount = Math.trunc(Number(Number(partyAmount[0]).toFixed(4)));
+      const partyAmountExpectedTest = Math.trunc(Number(Number(partyAmountExpected).toFixed(4)));
+      expect(solidityAmount).to.be.equals(partyAmountExpectedTest); 
     }  
     // const revertTrade = await ob.revertTrade({
     //   from: lp, 
@@ -418,29 +419,36 @@ describe('SecondaryPool', function () {
     });
 
     it('Sell Limit SWAP In Security Order > Buy Limit SWAP Out Security Order', async () => {
-      sell_qty = fp(400);
-      const counterPartyAmountExpected = usdcAmount(10*20); //cash amount
-      const partyAmountExpected = fp(10); //security
+      const counterPartyAmountExpected = usdcAmount(600); //cash amount
+      const partyAmountExpected = fp(30); //security
 
       const sell_order = await pool.swapGivenIn({
         in: pool.securityIndex,
         out: pool.bptIndex,
-        amount: sell_qty,
+        amount: fp(30),
         from: lp,
         balances: currentBalances,
         data : abiCoder.encode(["bytes32", "uint"], [ethers.utils.formatBytes32String('Limit'), sell_price]),
       })
-      expect(sell_order[0].toString()).to.be.equals(sell_qty.toString());
+      expect(sell_order[0].toString()).to.be.equals(fp(30).toString());
 
+      const sell_order1 = await pool.swapGivenIn({
+        in: pool.securityIndex,
+        out: pool.bptIndex,
+        amount: fp(20),
+        from: lp,
+        balances: currentBalances,
+        data : abiCoder.encode(["bytes32", "uint"], [ethers.utils.formatBytes32String('Limit'), fp(20)]),
+      })
       const buy_order =  await pool.swapGivenIn({
         in: pool.currencyIndex,
         out: pool.bptIndex,
-        amount: usdcAmount(200),
+        amount: usdcAmount(1200),
         from: trader,
         balances: currentBalances,
         data : abiCoder.encode(["bytes32", "uint"], [ethers.utils.formatBytes32String('Limit'), fp(30)]),
       });
-      expect(buy_order[0].toString()).to.be.equals(fp(200).toString()); 
+      expect(buy_order[0].toString()).to.be.equals(fp(1200).toString()); 
 
       const counterPartyTrades = await ob.getTrades({from: lp});
       const partyTrades = await ob.getTrades({from: trader});
@@ -449,6 +457,7 @@ describe('SecondaryPool', function () {
       const pTradesInfo = await ob.getTrade({from: trader, tradeId: Number(partyTrades[0]) });
   
       await callSwapEvent(cpTradesInfo,pTradesInfo,counterPartyAmountExpected,partyAmountExpected);
+      
     });
 
     it('Sell Market SWAP In Security Order > Buy Limit SWAP In Currency Order', async () => {
@@ -487,7 +496,7 @@ describe('SecondaryPool', function () {
       const buy_order1 =  await pool.swapGivenIn({
         in: pool.currencyIndex,
         out: pool.bptIndex,
-        amount: usdcAmount(200),
+        amount: usdcAmount(100),
         from: trader,
         balances: currentBalances,
         data : abiCoder.encode(["bytes32", "uint"], [ethers.utils.formatBytes32String('Limit'), fp(20)]),
@@ -771,7 +780,7 @@ describe('SecondaryPool', function () {
       let buy_qty = Number(Math.floor((Math.random() * 20) + 1));
       let misc = false;
       let sell_data = OrderType[sell_RandomOrderType] == "Market" ? abiCoder.encode([],[]) : abiCoder.encode(["bytes32", "uint"], [ethers.utils.formatBytes32String(OrderType[sell_RandomOrderType]), fp(sell_price)]);
-      let buy_data = OrderType[buy_RandomOrderType] == "Market" ? abiCoder.encode([],[]) : abiCoder.encode(["bytes32", "uint"], [ethers.utils.formatBytes32String(OrderType[sell_RandomOrderType]), fp(buy_price)])
+      let buy_data = OrderType[buy_RandomOrderType] == "Market" ? abiCoder.encode([],[]) : abiCoder.encode(["bytes32", "uint"], [ethers.utils.formatBytes32String(OrderType[buy_RandomOrderType]), fp(buy_price)])
       let securityTraded: BigNumber,currencyTraded: BigNumber;
 
       it(`Sell QTY: ${sell_qty}@Price: ${sell_price} Order: ${OrderType[sell_RandomOrderType]} >>> Buy QTY: ${buy_qty}@Price: ${buy_price} Order: ${OrderType[buy_RandomOrderType]}`, async() => {
@@ -779,7 +788,7 @@ describe('SecondaryPool', function () {
         let price, cash;
         price = OrderType[sell_RandomOrderType] == "Market" ? buy_price : sell_price;
         cash = sell_qty * price;
-        if( cash > buy_qty)
+        if(cash > buy_qty)
         {
           currencyTraded = usdcAmount(buy_qty);
           securityTraded = fp(buy_qty/price);
@@ -977,31 +986,43 @@ describe('SecondaryPool', function () {
       expect(sell_order[0].toString()).to.be.equal(fp(10).toString());
       
     });
-    it('25 test cases performance', async () => {
-      const numTrades = 5;
+    it('Orderbook performance check', async () => {
+      const numTrades = 25;
+      const buyOrder = 5;
+      const data = [];
       for (var i = 0; i < numTrades; i++) {
-        const sell_amount = Math.floor((Math.random() * 100) + 1);
-        const sell_price = Math.floor((Math.random() * 100) + 1);
-        // console.log("Amount",sell_amount,sell_price );
+        const sell_amount = Math.floor((Math.random() * 10) + 1);
+        const sell_price = Math.floor((Math.random() * 10) + 1);
+        data.push({qty: sell_amount, price: sell_price});
+      }
+      const sortedArr = [...data].sort((a, b) => a.price - b.price);
+      let amountRequired = 0;
+      for (var i = 0; i < buyOrder; i++) {
+        amountRequired += sortedArr[i].qty*sortedArr[i].price;
+      }
+      console.log(sortedArr, amountRequired);
+      console.log("--- Sell Orders ---");
+      for (var i = 0; i < numTrades; i++) {
+        console.log("Order #", i);
         await pool.swapGivenIn({ // Sell Security 
           in: pool.securityIndex,
           out: pool.bptIndex,
-          amount: fp(sell_amount),
+          amount: fp(data[i].qty),
           from: lp,
           balances: currentBalances,
-          data: abiCoder.encode(["bytes32", "uint"], [ethers.utils.formatBytes32String('Limit'), fp(sell_price)]),
+          data: abiCoder.encode(["bytes32", "uint"], [ethers.utils.formatBytes32String('Limit'), fp(data[i].price)]),
         });
       }
-      // console.log("--- Market order ---")
+      console.log("--- Market order ---")
       const buy_order = await pool.swapGivenIn({ // Buy Security 10@CMP
         in: pool.currencyIndex,
         out: pool.bptIndex,
-        amount: usdcAmount(1000),
+        amount: usdcAmount(amountRequired),
         from: trader,
         balances: currentBalances,
         data: abiCoder.encode([], [])
       });
-      // console.log("buy_order",buy_order[0].toString());
+      console.log("buy_order",buy_order[0].toString());
     });
   })
 

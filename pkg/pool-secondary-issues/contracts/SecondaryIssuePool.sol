@@ -198,7 +198,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
 
                 emit TradeReport(
                     _security,
-                    ref,
+                    tradeToReport.partyAddress == request.from ? tradeToReport.partyRef : tradeToReport.counterpartyRef,
                     ref==bytes32("security") ? _orderbook.getOrder(tradeToReport.partyRef).party : _orderbook.getOrder(tradeToReport.counterpartyRef).party,
                     ref==bytes32("currency") ? _orderbook.getOrder(tradeToReport.partyRef).party : _orderbook.getOrder(tradeToReport.counterpartyRef).party,
                     orderType,
