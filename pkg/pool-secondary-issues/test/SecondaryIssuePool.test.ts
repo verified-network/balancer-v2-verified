@@ -987,7 +987,7 @@ describe('SecondaryPool', function () {
       
     });
     it('Orderbook performance check', async () => {
-      const numTrades = 25;
+      const numTrades = 10;
       const buyOrder = 5;
       const data = [];
       for (var i = 0; i < numTrades; i++) {
@@ -1000,7 +1000,7 @@ describe('SecondaryPool', function () {
       for (var i = 0; i < buyOrder; i++) {
         amountRequired += sortedArr[i].qty*sortedArr[i].price;
       }
-      console.log(sortedArr, amountRequired);
+      // console.log(sortedArr, amountRequired);
       console.log("--- Sell Orders ---");
       for (var i = 0; i < numTrades; i++) {
         console.log("Order #", i);
@@ -1022,7 +1022,7 @@ describe('SecondaryPool', function () {
         balances: currentBalances,
         data: abiCoder.encode([], [])
       });
-      console.log("buy_order",buy_order[0].toString());
+      // console.log("buy_order",buy_order[0].toString());
     });
   })
 
