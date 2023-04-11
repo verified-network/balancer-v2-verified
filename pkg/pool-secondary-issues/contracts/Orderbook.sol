@@ -109,9 +109,8 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
     //Buyers get the best price (lowest offer) they can buy at.
     function matchOrders(bytes32 ref, IOrder.order memory _order, uint256 price) private returns (bytes32){
         Node memory bestBid;
+        Node memory bestOffer;
         uint256 bestPrice = 0;
-        Node memory bestOffer;        
-        //uint256 bidIndex = 0;   
         uint256 securityTraded;
         uint256 currencyTraded;
         uint256 i;
@@ -153,7 +152,6 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                         _orders[bestBid.ref].status = _orders[bestBid.ref].qty == 0 ? IOrder.OrderStatus.Filled : IOrder.OrderStatus.PartlyFilled;
                         _order.status = IOrder.OrderStatus.Filled;  
                         reportTrade(ref, bestBid.ref, securityTraded, currencyTraded);
-                        break;
                     }    
                     else if(securityTraded!=0){
                         currencyTraded = securityTraded.mulDown(bestPrice);
@@ -177,7 +175,6 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                         _orders[bestOffer.ref].status = _orders[bestOffer.ref].qty == 0 ? IOrder.OrderStatus.Filled : IOrder.OrderStatus.PartlyFilled;
                         _order.status = IOrder.OrderStatus.Filled;  
                         reportTrade(ref, bestOffer.ref, securityTraded, currencyTraded);
-                        break;
                     }    
                     else if(currencyTraded!=0){
                         securityTraded = currencyTraded.divDown(bestPrice);
@@ -190,7 +187,6 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                     }                    
                 }
             }
-            //i++;
         }        
         //remove filled order from orderbook
         if(_order.status == IOrder.OrderStatus.Filled){
