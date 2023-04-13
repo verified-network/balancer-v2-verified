@@ -6,7 +6,7 @@ pragma solidity ^0.7.0;
 pragma experimental ABIEncoderV2;
 
 import "./Heap.sol";
-import "hardhat/console.sol";
+
 import "./interfaces/IOrder.sol";
 import "./interfaces/ITrade.sol";
 import "./interfaces/ISecondaryIssuePool.sol";
@@ -137,7 +137,6 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                     price = price == 0 ? _price : _marketOrders[index].price;
                     volume = Math.add(volume, price.mulDown(_orders[_marketOrders[index].ref].qty));
                     //if it is a buy order, ie, cash in
-                    console.log("Insert in Sell Orderbook", index);
                     if(volume >= _orders[_ref].qty)
                         //if available market depth exceeds qty to trade, exit and avoid unnecessary lookup through orderbook  
                         return (volume, _marketOrders);
@@ -164,17 +163,11 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         if(matches==0){
             return ref;
         }
-        else{
-            console.log("Size of market orders returned by checkOrders function ", _marketOrders.length);
-            console.log("Size of buy order book ", _buyOrderbook.length);
-            console.log("Size of sell order book ", _sellOrderbook.length); 
-            //size of order book remaining after checkOrders + matches should be = original order book size 
-        }
+        
         //if market depth exists, then fill order at one or more price points in the order book
         for (i = 0; i < _marketOrders.length; i++) {
             bytes32 marketOrderRef = _marketOrders[i].ref;
             IOrder.order memory order = _orders[marketOrderRef];
-            console.log("Looping through orders, loop number ", i);
             if (_order.qty == 0) break;
             if (marketOrderRef == ref || order.party == _order.party || order.status == IOrder.OrderStatus.Filled) continue;
             if (_marketOrders[i].price == 0 && price == 0) continue;
