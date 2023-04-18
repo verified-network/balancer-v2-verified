@@ -1,0 +1,12 @@
+{
+    "remappings": [ 
+        "@balancer-labs/v2-solidity-utils/contracts/helpers/=../solidity-utils/contracts/helpers/",
+        "@balancer-labs/v2-solidity-utils/contracts/math/=../solidity-utils/contracts/math/",
+        "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/=../solidity-utils/contracts/openzeppelin/",
+        "@balancer-labs/v2-interfaces/contracts/=../interfaces/contracts/",
+        "@balancer-labs/v2-pool-utils/contracts/=../pool-utils/contracts/"
+    ],
+    "optimizer": {
+    "enabled": true
+    }
+}

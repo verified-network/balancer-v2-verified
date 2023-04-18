@@ -1,4 +1,4 @@
-// Interface for creating trading pools and settling trades
+// Interface for creating secondary trading pools and settling secondary trades
 //"SPDX-License-Identifier: BUSL1.1"
 
 pragma solidity 0.7.1;
