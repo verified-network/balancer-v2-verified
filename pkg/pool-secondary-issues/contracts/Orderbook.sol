@@ -91,7 +91,10 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         bool buy = _orders[ref].tokenIn==_security ? false : true;
         editOrderbook(_price, ref, buy);
         uint256 qty = _orders[ref].qty;
-        _orders[ref].qty = _request.amount;
+        if(address(_request.tokenIn)==_security || address(_request.tokenIn)==_currency)
+            _orders[ref].qty = Math.add(_request.amount, qty);
+        else
+            _orders[ref].qty = _request.amount;
         return qty;
     }
 
