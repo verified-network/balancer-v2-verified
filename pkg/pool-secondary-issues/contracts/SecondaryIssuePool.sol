@@ -247,11 +247,11 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 else if (request.tokenOut == IERC20(this) && request.kind==IVault.SwapKind.GIVEN_IN) {
                     //request amount (security, currency) is more than original amount, so additional BPT is paid out from the pool
                     amount = _orderbook.editOrder(otype, tp, request);
-                    amount = Math.sub(request.amount, amount);
-                    require(balances[_bptIndex] >= amount, "INSUFFICIENT_INTERNAL_BALANCE");
+                    //amount = Math.sub(request.amount, amount);
+                    require(balances[_bptIndex] >= request.amount, "INSUFFICIENT_INTERNAL_BALANCE");
                     emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, tp, block.timestamp, otype);
                     // bpt tokens equivalent to amount requested adjusted to existing amount are exiting the Pool, so we round down.
-                    return _downscaleDown(amount, scalingFactors[indexOut]);  
+                    return _downscaleDown(request.amount, scalingFactors[indexOut]);  
                 }
                 else
                     _revert(Errors.UNHANDLED_BY_SECONDARY_POOL);

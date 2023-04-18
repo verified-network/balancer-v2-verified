@@ -119,7 +119,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                 if (price < _price && _price != 0) break;
                 // since this is a sell order, counter offers must offer a better price
                 _marketOrders[index] = removeBuyOrder();
-                uint256 orderPrice = _marketOrders[index].price > 0 ? _marketOrders[index].price : _price > 0 ? _price : price;
+                uint256 orderPrice = _marketOrders[index].price > 0 ? _marketOrders[index].price : _price;// > 0 ? _price : price;
                 volume = Math.add(volume, _orders[_marketOrders[index].ref].qty.divDown(orderPrice));
                 //if it is a sell order, ie, security in
                 if (volume >= _orders[_ref].qty) {
