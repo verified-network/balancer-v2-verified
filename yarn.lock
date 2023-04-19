@@ -2775,9 +2775,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@verified-network/pool-fix-trading@workspace:pkg/pool-fix-trading":
+"@verified-network/pool-margin-trading@workspace:pkg/pool-margin-trading":
   version: 0.0.0-use.local
-  resolution: "@verified-network/pool-fix-trading@workspace:pkg/pool-fix-trading"
+  resolution: "@verified-network/pool-margin-trading@workspace:pkg/pool-margin-trading"
   dependencies:
     "@balancer-labs/v2-common": "workspace:*"
     "@balancer-labs/v2-helpers": "workspace:*"
@@ -2817,9 +2817,9 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@verified-network/pool-margin-trading@workspace:pkg/pool-margin-trading":
+"@verified-network/pool-offchain-secondaries@workspace:pkg/pool-offchain-secondaries":
   version: 0.0.0-use.local
-  resolution: "@verified-network/pool-margin-trading@workspace:pkg/pool-margin-trading"
+  resolution: "@verified-network/pool-offchain-secondaries@workspace:pkg/pool-offchain-secondaries"
   dependencies:
     "@balancer-labs/v2-common": "workspace:*"
     "@balancer-labs/v2-helpers": "workspace:*"
