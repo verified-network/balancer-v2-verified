@@ -701,7 +701,7 @@ describe('SecondaryPool', function () {
         from: lp,
         data : abiCoder.encode(["bytes32", "uint"], [_ref[0], editedPrice])
       });
-      expect(edit_order[0].toString()).to.be.equals(editedPrice.sub(sell_qty).toString());
+      expect(edit_order[0].toString()).to.be.equals(editedAmount.toString());
 
       const buy_order = await pool.swapGivenIn({
         in: pool.currencyIndex,
@@ -747,7 +747,7 @@ describe('SecondaryPool', function () {
         from: lp,
         data : abiCoder.encode(["bytes32", "uint"], [_ref[0], editedPrice])
       });
-      expect(edit_order[0].toString()).to.be.equals(sell_qty.sub(editedPrice).toString());
+      expect(edit_order[0].toString()).to.be.equals(editedAmount.toString());
 
       const buy_order = await pool.swapGivenIn({
         in: pool.currencyIndex,
