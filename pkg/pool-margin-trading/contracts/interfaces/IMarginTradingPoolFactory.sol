@@ -10,7 +10,9 @@ interface IMarginTradingPoolFactory {
         string name;
         string symbol;
         address security;
+        bytes32 securityType;
         address currency;
+        bytes32 cficode;
         uint256 minOrderSize;
         uint256 margin;
         uint256 collateral;

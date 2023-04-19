@@ -209,7 +209,7 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                 );
                 tradeToReport.securityTraded = _downscaleDown(tradeToReport.securityTraded, _scalingFactorSecurity);
                 tradeToReport.currencyTraded = _downscaleDown(tradeToReport.currencyTraded, _scalingFactorCurrency);
-                ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
+                //ISettlor(_balancerManager).requestSettlement(tradeToReport, _orderbook);
                 _orderbook.removeTrade(request.from, tp);
                 // The amount given is for token out, the amount calculated is for token in
                 return _downscaleDown(amount, scalingFactors[indexOut]);

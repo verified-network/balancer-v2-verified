@@ -64,7 +64,7 @@ contract MarginTradingPool is BasePool, IGeneralPool {
         uint256 executionDate
     );
 
-    event Offer(address indexed security, uint256 minOrderSize, address currency, uint256 margin, uint256 collateral, address orderBook, address issueManager);  
+    event Offer(address indexed security, bytes32 securityType, uint256 minOrderSize, address currency, uint256 margin, uint256 collateral, bytes32 CfiCode, address orderBook, address issueManager);  
 
     event OrderBook(address creator, address tokenIn, address tokenOut, uint256 amountOffered, uint256 priceOffered, uint256 stoplossPrice, uint256 timestamp, bytes32 orderRef);
     
@@ -119,7 +119,7 @@ contract MarginTradingPool is BasePool, IGeneralPool {
 
         _orderbook = new Orderbook(payable(owner), factoryPoolParams.security, factoryPoolParams.currency, address(this));
 
-        emit Offer(factoryPoolParams.security, factoryPoolParams.minOrderSize, factoryPoolParams.currency, factoryPoolParams.margin, factoryPoolParams.collateral, address(_orderbook), owner);
+        emit Offer(factoryPoolParams.security, factoryPoolParams.securityType, factoryPoolParams.minOrderSize, factoryPoolParams.currency, factoryPoolParams.margin, factoryPoolParams.collateral, factoryPoolParams.cficode, address(_orderbook), owner);
     }
 
     function getMargin() external view returns(uint256){
