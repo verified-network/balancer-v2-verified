@@ -97,12 +97,18 @@ contract Orderbook is IOrder, ITrade, Ownable{
     }
 
     function editOrder(
-        bytes32 ref
-    ) public view onlyOwner returns(uint256){
+        bytes32 ref,
+        IPoolSwapStructs.SwapRequest memory _request
+    ) public onlyOwner returns(uint256){
         require (_orders[ref].otype != IOrder.OrderType.Market, "Market order can not be changed");
         require(_orders[ref].status == IOrder.OrderStatus.Open, "Order is already filled");
         require(_orders[ref].party == msg.sender, "Sender is not order creator");
-        return _orders[ref].qty;
+        uint256 qty = _orders[ref].qty;
+        if(address(_request.tokenIn)==_security || address(_request.tokenIn)==_currency)
+            _orders[ref].qty = Math.add(_request.amount, qty);
+        else
+            _orders[ref].qty = _request.amount;
+        return qty;
     }
 
     function cancelOrder(bytes32 ref) public onlyOwner returns(uint256){
