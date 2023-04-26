@@ -240,7 +240,6 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
                     //request amount (security, currency) is less than original amount, so some BPT is returned to the pool
                     amount = _orderbook.editOrder(otype, tp, request);
                     amount = Math.sub(amount, request.amount);
-                    // emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, tp, block.timestamp, otype);
                     emit OrderBook(request.from, address(request.tokenIn), address(request.tokenOut), amount, tp, block.timestamp, otype);
                     //security or currency tokens are paid out for bpt to be paid in
                     return _downscaleDown(amount, scalingFactors[indexOut]);

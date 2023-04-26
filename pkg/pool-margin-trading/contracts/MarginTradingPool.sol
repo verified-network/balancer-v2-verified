@@ -122,6 +122,10 @@ contract MarginTradingPool is BasePool, IGeneralPool {
         emit MarginOffer(factoryPoolParams.security, factoryPoolParams.securityType, factoryPoolParams.minOrderSize, factoryPoolParams.currency, factoryPoolParams.margin, factoryPoolParams.collateral, factoryPoolParams.cficode, address(_orderbook), owner);
     }
 
+    function getFee() external view returns(uint256){
+        return _swapFee;
+    }
+
     function getMargin() external view returns(uint256){
         return _margin;
     }

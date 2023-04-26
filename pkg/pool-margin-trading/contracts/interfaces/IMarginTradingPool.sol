@@ -19,5 +19,7 @@ interface IMarginTradingPool {
     function getMargin() external view returns(uint256);
 
     function getCollateral() external view returns(uint256);
+
+    function getFee() external view returns(uint256);
 }
 

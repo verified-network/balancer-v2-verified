@@ -78,7 +78,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         else if(nOrder.tokenIn==_currency)
             //buy order
             insertBuyOrder(_params.price, ref);
-        return matchOrders(ref, nOrder, _params.price);
+        return matchOrders(ref, _params.price);
     }
 
     function editOrder(
@@ -94,7 +94,6 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         if(address(_request.tokenIn)==_security || address(_request.tokenIn)==_currency)
             _orders[ref].qty = Math.add(_request.amount, qty);
         else
-            // _orders[ref].qty = _request.amount;
             _orders[ref].qty = Math.sub(_orders[ref].qty ,_request.amount);
         return qty;
     }
@@ -153,7 +152,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
 
     //match market orders. Sellers get the best price (highest bid) they can sell at.
     //Buyers get the best price (lowest offer) they can buy at.
-    function matchOrders(bytes32 ref, IOrder.order memory _order, uint256 price) private returns (bytes32){
+    function matchOrders(bytes32 ref, uint256 price) private returns (bytes32){
         bytes32 bestBid;
         uint256 bestPrice = 0;
         bytes32 bestOffer;        
@@ -170,8 +169,6 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         
         //if market depth exists, then fill order at one or more price points in the order book
         for (i = 0; i < _marketOrders.length; i++) {
-            // if (_order.qty == 0) break;
-            // Changed _order [memory variable] --> _orders[ref] [storage variable]
             if (_orders[ref].qty == 0) break;
             if (
                 _marketOrders[i].ref != ref && //orders can not be matched with themselves
@@ -199,31 +196,23 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                     if(securityTraded >= _orders[ref].qty){
                         securityTraded = _orders[ref].qty;
                         currencyTraded = _orders[ref].qty.mulDown(bestPrice);
-                        // _orders[bestBid].qty = Math.sub(_orders[bestBid].qty, _order.qty);
                         _orders[bestBid].qty = Math.sub(_orders[bestBid].qty, currencyTraded);
-                        // _order.qty = 0;
                         _orders[ref].qty = 0;
-                        // _orders[bestBid].status = _orders[bestBid].qty == 0 ? IOrder.OrderStatus.Filled : IOrder.OrderStatus.PartlyFilled;
-                        if(_orders[bestBid].qty == 0)
-                        {
+                        if(_orders[bestBid].qty == 0){
                             _orders[bestBid].status = IOrder.OrderStatus.Filled;
                         }
                         else{
                             _orders[bestBid].status = IOrder.OrderStatus.PartlyFilled;
                             insertBuyOrder(bestPrice, bestBid); //reinsert partially unfilled order into orderbook
                         }
-                        // _order.status = IOrder.OrderStatus.Filled; 
                         _orders[ref].status =  IOrder.OrderStatus.Filled;
                         reportTrade(ref, bestBid, securityTraded, currencyTraded);
-                        // insertBuyOrder(bestPrice, bestBid); //reinsert partially unfilled order into orderbook
                     }    
                     else if(securityTraded!=0){
                         currencyTraded = securityTraded.mulDown(bestPrice);
-                        // _order.qty = Math.sub(_order.qty, securityTraded);
                         _orders[ref].qty = Math.sub(_orders[ref].qty, securityTraded);
                         _orders[bestBid].qty = 0;
                         _orders[bestBid].status = IOrder.OrderStatus.Filled;
-                        // _order.status = IOrder.OrderStatus.PartlyFilled;
                         _orders[ref].status =  IOrder.OrderStatus.PartlyFilled;
                         reportTrade(ref, bestBid, securityTraded, currencyTraded);
                     }
@@ -236,29 +225,22 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                         currencyTraded = _orders[ref].qty;
                         securityTraded = _orders[ref].qty.divDown(bestPrice);
                         _orders[bestOffer].qty = Math.sub(_orders[bestOffer].qty, securityTraded);
-                        // _order.qty = 0;
                         _orders[ref].qty = 0;
-                        // _orders[bestOffer].status = _orders[bestOffer].qty == 0 ? IOrder.OrderStatus.Filled : IOrder.OrderStatus.PartlyFilled;
-                        if(_orders[bestBid].qty == 0)
-                        {
+                        if(_orders[bestBid].qty == 0){
                             _orders[bestBid].status = IOrder.OrderStatus.Filled;
                         }
                         else{
                             _orders[bestBid].status = IOrder.OrderStatus.PartlyFilled;
                             insertSellOrder(bestPrice, bestBid); //reinsert partially unfilled order into orderbook
                         }
-                        // _order.status = IOrder.OrderStatus.Filled; 
                         _orders[ref].status =  IOrder.OrderStatus.Filled; 
                         reportTrade(ref, bestOffer, securityTraded, currencyTraded);
-                        // insertSellOrder(bestPrice, bestOffer); //reinsert partially unfilled order into orderbook
                     }    
                     else if(currencyTraded!=0){
                         securityTraded = currencyTraded.divDown(bestPrice);
-                        // _order.qty = Math.sub(_order.qty, currencyTraded);
                         _orders[ref].qty = Math.sub(_orders[ref].qty, currencyTraded);
                         _orders[bestOffer].qty = 0;
                         _orders[bestOffer].status = IOrder.OrderStatus.Filled;
-                        // _order.status = IOrder.OrderStatus.PartlyFilled;    
                         _orders[ref].status =  IOrder.OrderStatus.PartlyFilled; 
                         reportTrade(ref, bestOffer, securityTraded, currencyTraded);                    
                     }                    
@@ -266,7 +248,6 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
             }
         }
         //remove filled order from orderbook
-        // if(_order.status == IOrder.OrderStatus.Filled){
         if(_orders[ref].status == IOrder.OrderStatus.Filled){
             bool buy = _orders[ref].tokenIn==_security ? false : true;
             cancelOrderbook(ref, buy);
