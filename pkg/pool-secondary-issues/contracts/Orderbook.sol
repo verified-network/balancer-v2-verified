@@ -226,12 +226,12 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                         securityTraded = _orders[ref].qty.divDown(bestPrice);
                         _orders[bestOffer].qty = Math.sub(_orders[bestOffer].qty, securityTraded);
                         _orders[ref].qty = 0;
-                        if(_orders[bestBid].qty == 0){
-                            _orders[bestBid].status = IOrder.OrderStatus.Filled;
+                        if(_orders[bestOffer].qty == 0){
+                            _orders[bestOffer].status = IOrder.OrderStatus.Filled;
                         }
                         else{
-                            _orders[bestBid].status = IOrder.OrderStatus.PartlyFilled;
-                            insertSellOrder(bestPrice, bestBid); //reinsert partially unfilled order into orderbook
+                            _orders[bestOffer].status = IOrder.OrderStatus.PartlyFilled;
+                            insertSellOrder(bestPrice, bestOffer); //reinsert partially unfilled order into orderbook
                         }
                         _orders[ref].status =  IOrder.OrderStatus.Filled; 
                         reportTrade(ref, bestOffer, securityTraded, currencyTraded);
