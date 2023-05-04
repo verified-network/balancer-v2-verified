@@ -287,6 +287,28 @@ describe('SecondaryPool', function () {
       expect(buy_order[0].toString()).to.be.equals(fp(100).toString());
     });
 
+    it('accepts Empty order: Buy Order@CMP > Sell Order@CMP', async () => {
+      const buy_order = await pool.swapGivenIn({
+        in: pool.currencyIndex,
+        out: pool.bptIndex,
+        amount: usdcAmount(100),
+        balances: currentBalances,
+        from: trader,
+        data: abiCoder.encode([], []), // MarketOrder Buy 500@Market Price
+      });
+      expect(buy_order[0].toString()).to.be.equals(fp(100).toString());
+
+      const sell_order = await pool.swapGivenIn({
+        in: pool.securityIndex,
+        out: pool.bptIndex,
+        amount: sell_qty,
+        balances: currentBalances,
+        from: lp,
+        data: abiCoder.encode([], []), // MarketOrder Sell 10@Market Price
+      });
+      expect(sell_order[0].toString()).to.be.equals(sell_qty.toString());
+    });
+
     it('Market order: Sell Order@CMP > Buy Limit Order', async () => {
       const counterPartyAmountExpected = usdcAmount(30);
       const partyAmountExpected = fp(6);
