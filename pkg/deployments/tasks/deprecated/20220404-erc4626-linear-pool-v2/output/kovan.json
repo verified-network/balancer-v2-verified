@@ -1,0 +1,10 @@
+<<<<<<< HEAD:pkg/deployments/tasks/20220404-erc4626-linear-pool-v2/output/kovan.json
+{
+  "ERC4626LinearPoolFactory": "0x44284efFA14964feF15CB13e4a6579D3b3AD7e14",
+  "timestamp": 1649101944439
+}
+=======
+{
+  "ERC4626LinearPoolFactory": "0x44284efFA14964feF15CB13e4a6579D3b3AD7e14"
+}
+>>>>>>> origin/master:pkg/deployments/tasks/deprecated/20220404-erc4626-linear-pool-v2/output/kovan.json

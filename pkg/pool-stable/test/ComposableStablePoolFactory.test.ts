@@ -11,6 +11,7 @@ import { ZERO_ADDRESS } from '@balancer-labs/v2-helpers/src/constants';
 import { sharedBeforeEach } from '@balancer-labs/v2-common/sharedBeforeEach';
 import { deploy, deployedAt } from '@balancer-labs/v2-helpers/src/contract';
 import { advanceTime, currentTimestamp, MONTH } from '@balancer-labs/v2-helpers/src/time';
+import { randomBytes } from 'ethers/lib/utils';
 
 describe('ComposableStablePoolFactory', function () {
   let vault: Vault, tokens: TokenList, factory: Contract;
@@ -27,6 +28,7 @@ describe('ComposableStablePoolFactory', function () {
 
   let createTime: BigNumber;
   let protocolFeeExemptFlags: boolean[];
+  let factoryVersion: string, poolVersion: string;
 
   before('setup signers', async () => {
     [, owner] = await ethers.getSigners();
@@ -34,7 +36,26 @@ describe('ComposableStablePoolFactory', function () {
 
   sharedBeforeEach('deploy factory & tokens', async () => {
     vault = await Vault.create();
-    factory = await deploy('ComposableStablePoolFactory', { args: [vault.address, vault.getFeesProvider().address] });
+    factoryVersion = JSON.stringify({
+      name: 'ComposableStablePoolFactory',
+      version: '1',
+      deployment: 'test-deployment',
+    });
+    poolVersion = JSON.stringify({
+      name: 'ComposableStablePool',
+      version: '0',
+      deployment: 'test-deployment',
+    });
+    factory = await deploy('ComposableStablePoolFactory', {
+      args: [
+        vault.address,
+        vault.getFeesProvider().address,
+        factoryVersion,
+        poolVersion,
+        BASE_PAUSE_WINDOW_DURATION,
+        BASE_BUFFER_PERIOD_DURATION,
+      ],
+    });
     createTime = await currentTimestamp();
 
     tokens = await TokenList.create(['baDAI', 'baUSDC', 'baUSDT'], { sorted: true });
@@ -56,7 +77,8 @@ describe('ComposableStablePoolFactory', function () {
       Array(tokens.length).fill(PRICE_RATE_CACHE_DURATION),
       protocolFeeExemptFlags,
       POOL_SWAP_FEE_PERCENTAGE,
-      owner.address
+      owner.address,
+      randomBytes(32)
     );
 
     const event = expectEvent.inReceipt(await receipt.wait(), 'PoolCreated');
@@ -70,8 +92,20 @@ describe('ComposableStablePoolFactory', function () {
       pool = await createPool();
     });
 
+    it('sets the factory version', async () => {
+      expect(await factory.version()).to.equal(factoryVersion);
+    });
+
     it('sets the vault', async () => {
       expect(await pool.getVault()).to.equal(vault.address);
+    });
+
+    it('sets the pool version', async () => {
+      expect(await pool.version()).to.equal(poolVersion);
+    });
+
+    it('gets pool version from the factory', async () => {
+      expect(await factory.getPoolVersion()).to.equal(poolVersion);
     });
 
     it('registers tokens in the vault', async () => {

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # 2021-09-07 - Investment Pool
 
 > ⚠️ **DEPRECATED: do not use** ⚠️
@@ -10,3 +11,17 @@
 - [Polygon mainnet address](./output/polygon.json)
 - [Arbitrum mainnet address](./output/arbitrum.json)
 - [`InvestmentPool` ABI](./abi/InvestmentPool.json)
+=======
+# 2021-09-07 - Investment Pool
+
+> ⚠️ **DEPRECATED: do not use** ⚠️
+>
+> This factory and associated Pools have been deprecated. A version of Managed Pools will soon be released, providing a migration path for existing Pools.
+
+## Useful Files
+
+- [Ethereum mainnet addresses](./output/mainnet.json)
+- [Polygon mainnet address](./output/polygon.json)
+- [Arbitrum mainnet address](./output/arbitrum.json)
+- [`InvestmentPoolFactory` artifact](./artifact/InvestmentPoolFactory.json)
+>>>>>>> origin/master

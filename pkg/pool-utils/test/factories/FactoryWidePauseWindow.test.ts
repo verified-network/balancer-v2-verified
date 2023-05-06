@@ -1,8 +1,10 @@
 import { BigNumber, Contract } from 'ethers';
-import { deploy } from '@balancer-labs/v2-helpers/src/contract';
 import { expect } from 'chai';
+
+import { deploy } from '@balancer-labs/v2-helpers/src/contract';
 import { advanceTime, currentTimestamp, DAY } from '@balancer-labs/v2-helpers/src/time';
 import { bn } from '@balancer-labs/v2-helpers/src/numbers';
+import { sharedBeforeEach } from '@balancer-labs/v2-common/sharedBeforeEach';
 
 describe('FactoryWidePauseWindow', function () {
   let factory: Contract;
@@ -12,7 +14,7 @@ describe('FactoryWidePauseWindow', function () {
   const BUFFER_PERIOD_DURATION = DAY * 30;
 
   sharedBeforeEach(async () => {
-    factory = await deploy('FactoryWidePauseWindow');
+    factory = await deploy('FactoryWidePauseWindow', { args: [PAUSE_WINDOW_DURATION, BUFFER_PERIOD_DURATION] });
     factoryDeployTime = await currentTimestamp();
   });
 

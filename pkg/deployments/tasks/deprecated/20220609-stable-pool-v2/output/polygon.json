@@ -1,0 +1,10 @@
+<<<<<<< HEAD:pkg/deployments/tasks/20220609-stable-pool-v2/output/polygon.json
+{
+  "StablePoolFactory": "0xcA96C4f198d343E251b1a01F3EBA061ef3DA73C1",
+  "timestamp": 1654812931895
+}
+=======
+{
+  "StablePoolFactory": "0xcA96C4f198d343E251b1a01F3EBA061ef3DA73C1"
+}
+>>>>>>> origin/master:pkg/deployments/tasks/deprecated/20220609-stable-pool-v2/output/polygon.json

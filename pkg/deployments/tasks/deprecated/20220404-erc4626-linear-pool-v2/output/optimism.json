@@ -1,0 +1,10 @@
+<<<<<<< HEAD:pkg/deployments/tasks/20220404-erc4626-linear-pool-v2/output/optimism.json
+{
+  "ERC4626LinearPoolFactory": "0x4C4287b07d293E361281bCeEe8715c8CDeB64E34",
+  "timestamp": 1656448859213
+}
+=======
+{
+  "ERC4626LinearPoolFactory": "0x4C4287b07d293E361281bCeEe8715c8CDeB64E34"
+}
+>>>>>>> origin/master:pkg/deployments/tasks/deprecated/20220404-erc4626-linear-pool-v2/output/optimism.json

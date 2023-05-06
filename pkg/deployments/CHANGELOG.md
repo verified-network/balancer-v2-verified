@@ -1,5 +1,108 @@
 # Changelog
 
+## Unreleased
+
+### New Deployments
+
+- Deployed `BatchRelayerLibrary` V5 to all networks.
+- Deployed `L2BalancerPseudoMinter` to Goerli, Arbitrum, Polygon, Optimism and Gnosis.
+- Deployed `VotingEscrowDelegationProxy` and `NullVotingEscrow` to Goerli, Arbitrum, Polygon, Optimism and Gnosis.
+- Deployed `WeightedPoolFactory` V4 to all networks.
+- Deployed `ComposableStablePoolFactory` V4 to all networks.
+- Deployed `ChildChainGaugeFactory` and `ChildChainGauge` to Goerli, Arbitrum, Polygon, Optimism and Gnosis.
+
+### Deprecations
+
+- Deprecated `20220916-batch-relayer-v4`.
+- Deprecated `20230206-weighted-pool-v3`.
+- Deprecated `20230206-composable-stable-pool-v3`.
+
+## 3.2.0 (2023-02-24)
+
+### New Networks
+
+- Deployed all L2 contracts to Avalanche.
+
+### New Deployments
+
+- Deployed `WeightedPoolFactory` v3 to all networks.
+- Deployed `ComposableStablePoolFactory` v3 to all networks.
+- Deployed `L2GaugeCheckpointer` to Mainnet.
+- Deployed `VeBoostV2` to Mainnet.
+- Deployed `NoProtocolFeeLiquidityBootstrappingPoolFactory` to Gnosis.
+- Deployed `ERC4626LinearPoolFactory` to Gnosis.
+- Deployed `UnbuttonAaveLinearPoolFactory` to Gnosis.
+- Deployed `StablePoolFactory` to Gnosis.
+- Deployed `WeightedPoolFactory` to Gnosis.
+- Deployed `ComposableStablePoolFactory` to Gnosis.
+- Deployed `PoolRecoveryHelper` to Gnosis.
+- Deployed `AaveLinearPoolFactory` to Gnosis.
+- Deployed `GaugeAdderV3` to Mainnet and Goerli.
+- Deployed `TimelockAuthorizerTransitionMigrator` to Mainnet.
+- Deployed `AaveLinearPoolV4` to all networks.
+- Deployed `ERC4626LinearPoolFactory` to Mainnet, Goerli, Arbitrum, Polygon, and Optimism.
+- Deployed `EulerLinearPoolFactory` to Mainnet and Goerli.
+- Deployed `YearnLinearPoolFactory` to Mainnet, Goerli, Arbitrum, Polygon, and Optimism.
+- Deployed `GearboxLinearPoolFactory` to Mainnet and Goerli.
+- Deployed `ChildChainLiquidityGaugeFactory`, `ChildChainStreamer`, and `RewardsOnlyGauge` to Gnosis.
+- Deployed `ChildChainGaugeTokenAdder` to Gnosis.
+- Deployed `ChildChainGaugeRewardHelper` to Gnosis.
+- Deployed `GnosisRootGaugeFactory` to Mainnet.
+- Deployed `MerkleOrchard` V2 to Mainnet, Goerli, Arbitrum and Polygon.
+- Deployed `SingleRecipientGaugeFactory` V2 to Mainnet and Goerli.
+- Deployed `ProtocolIdRegistry` to Mainnet, Goerli, Arbitrum, Polygon, Optimism and Gnosis.
+
+### Deprecations
+
+- Deprecated `20221207-aave-rebalanced-linear-pool-v3`.
+- Deprecated `20220425-unbutton-aave-linear-pool`.
+- Deprecated `20220404-erc4626-linear-pool-v2`.
+- Deprecated `20220325-gauge-adder`.
+- Deprecated `20220628-gauge-adder-v2`.
+
+### Breaking Changes
+
+- The `20221115-aave-rebalanced-linear-pool` task was deleted and replaced with `20221207-aave-rebalanced-linear-pool-v3`. The old task had not been used by anyone.
+
+## 3.1.1 (2022-12-01)
+
+### Bugfixes
+
+- Fixed changelog.
+
+## 3.1.0 (2022-12-01)
+
+### New Deployments
+
+- Deployed core infrastructure (`Authorizer`, `Vault`, `AuthorizerAdaptor`, `ProtocolFeeWithdrawer`, `ProtocolFeePercentagesProvider`, `BalancerQueries` and `BatchRelayer`) to Gnosis and BNB.
+- Deployed core Pool factories (`WeightedPoolFactory`, `ComposableStablePoolFactory`, `LiquidityBootstrappingPool`, `AaveLinearPool`) to BNB.
+- Deployed `AuthorizerAdaptorEntrypoint` to all networks.
+- Deployed `AaveLinearPoolFactory` to all networks.
+- Deployed `PoolRecoveryHelper` to all networks.
+- Deployed `ComposableStablePoolFactory` to all networks.
+- Deployed `TimelockAuthorizer` to ethereum mainnet and goerli.
+
+### Deprecations
+
+- Deprecated `20211021-managed-pool` due to lacking features and not being expected to ever be used. A new version will be released soon.
+
+### API Changes
+
+- Made `getBalancerContractAbi`, `getBalancerContractBytecode`, `getBalancerContractAddress` and `getBalancerDeployment` synchronous rather than asynchronous functions.
+- Added `getBalancerContractArtifact` which returns a artifact file for the contract in the same format used by Hardhat.
+- Deprecated `getBalancerContractBytecode` in favour of `getBalancerContractArtifact`.
+- Added `lookupBalancerContractByAddress` which returns the contract's name and the relevant deployment task if it is a tracked Balancer contract.
+
+## 3.0.0 (2022-10-25)
+
+### New Deployments
+
+- All deployments that occurred since September 2021, including Linear Pools, Liquidity Mining, Composable Stable Pools and Managed Pools.
+
+### Breaking Changes
+
+- Introduced the `deprecated` directory. Deployments may be moved to that directory in minor releases - this will not be considered a breaking change.
+
 ## 2.3.0 (2021-09-24)
 
 ### New Deployments

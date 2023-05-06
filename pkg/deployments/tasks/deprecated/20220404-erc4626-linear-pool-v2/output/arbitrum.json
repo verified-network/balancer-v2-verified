@@ -1,0 +1,10 @@
+<<<<<<< HEAD:pkg/deployments/tasks/20220404-erc4626-linear-pool-v2/output/arbitrum.json
+{
+  "ERC4626LinearPoolFactory": "0x2794953110874981a0d301286c986992022A62a1",
+  "timestamp": 1649102392699
+}
+=======
+{
+  "ERC4626LinearPoolFactory": "0x2794953110874981a0d301286c986992022A62a1"
+}
+>>>>>>> origin/master:pkg/deployments/tasks/deprecated/20220404-erc4626-linear-pool-v2/output/arbitrum.json

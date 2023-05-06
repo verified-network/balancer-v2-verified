@@ -9,6 +9,7 @@ import { actionId } from '@balancer-labs/v2-helpers/src/models/misc/actions';
 import { encodeJoin } from '@balancer-labs/v2-helpers/src/models/pools/mockPool';
 import * as expectEvent from '@balancer-labs/v2-helpers/src/test/expectEvent';
 import { Comparison, expectBalanceChange } from '@balancer-labs/v2-helpers/src/test/tokenBalance';
+import { sharedBeforeEach } from '@balancer-labs/v2-common/sharedBeforeEach';
 
 import {
   BatchSwapStep,
@@ -18,9 +19,8 @@ import {
   PoolSpecialization,
   RelayerAuthorization,
 } from '@balancer-labs/balancer-js';
-import { MONTH } from '@balancer-labs/v2-helpers/src/time';
 import { deploy, deployedAt } from '@balancer-labs/v2-helpers/src/contract';
-import { BigNumberish, bn, fp } from '@balancer-labs/v2-helpers/src/numbers';
+import { BigNumberish, bn, fp, FP_ONE } from '@balancer-labs/v2-helpers/src/numbers';
 import {
   ANY_ADDRESS,
   MAX_GAS_LIMIT,
@@ -30,6 +30,8 @@ import {
   ZERO_ADDRESS,
   ZERO_BYTES32,
 } from '@balancer-labs/v2-helpers/src/constants';
+import Vault from '@balancer-labs/v2-helpers/src/models/vault/Vault';
+import Token from '@balancer-labs/v2-helpers/src/models/tokens/Token';
 
 type SwapData = {
   pool?: number; // Index in the poolIds array
@@ -61,10 +63,16 @@ describe('Swaps', () => {
   });
 
   sharedBeforeEach('deploy vault and tokens', async () => {
-    tokens = await TokenList.create(['DAI', 'MKR', 'SNX', 'WETH']);
+    tokens = await TokenList.create(['DAI', 'MKR', 'SNX']);
 
-    authorizer = await deploy('TimelockAuthorizer', { args: [admin.address, ZERO_ADDRESS, MONTH] });
-    vault = await deploy('Vault', { args: [authorizer.address, tokens.WETH.address, 0, 0] });
+    ({ instance: vault, authorizer } = await Vault.create({ admin }));
+
+    // Contortions required to get the Vault's version of WETH to be in tokens
+    const wethContract = await deployedAt('v2-standalone-utils/TestWETH', await vault.WETH());
+    // And also need a real Token, in order to call mint
+    const wethToken = new Token('Wrapped Ether', 'WETH', 18, wethContract);
+    tokens.tokens.push(wethToken);
+    tokens = new TokenList(tokens.tokens);
 
     await tokens.mint({ to: [lp, trader], amount: bn(200e18) });
     await tokens.approve({ to: vault, from: [lp, trader], amount: MAX_UINT112 });
@@ -291,7 +299,7 @@ describe('Swaps', () => {
       context('when the sender is an approved relayer', () => {
         sharedBeforeEach(async () => {
           const action = await actionId(vault, 'batchSwap');
-          await authorizer.connect(admin).grantPermissions([action], other.address, [ANY_ADDRESS]);
+          await authorizer.connect(admin).grantPermission(action, other.address, ANY_ADDRESS);
 
           await vault.connect(trader).setRelayerApproval(trader.address, other.address, true);
         });
@@ -551,9 +559,8 @@ describe('Swaps', () => {
                             sharedBeforeEach('grant permission to relayer', async () => {
                               const single = await actionId(vault, 'swap');
                               const batch = await actionId(vault, 'batchSwap');
-                              await authorizer
-                                .connect(admin)
-                                .grantPermissions([single, batch], other.address, [ANY_ADDRESS, ANY_ADDRESS]);
+                              await authorizer.connect(admin).grantPermission(single, other.address, ANY_ADDRESS);
+                              await authorizer.connect(admin).grantPermission(batch, other.address, ANY_ADDRESS);
                             });
 
                             context('when the relayer is allowed by the user', () => {
@@ -590,9 +597,12 @@ describe('Swaps', () => {
                             sharedBeforeEach('revoke permission from relayer', async () => {
                               const single = await actionId(vault, 'swap');
                               const batch = await actionId(vault, 'batchSwap');
-                              await authorizer
-                                .connect(admin)
-                                .revokePermissions([single, batch], other.address, [ANY_ADDRESS, ANY_ADDRESS]);
+                              if (await authorizer.hasPermission(single, other.address, ANY_ADDRESS)) {
+                                await authorizer.connect(admin).revokePermission(single, other.address, ANY_ADDRESS);
+                              }
+                              if (await authorizer.hasPermission(batch, other.address, ANY_ADDRESS)) {
+                                await authorizer.connect(admin).revokePermission(batch, other.address, ANY_ADDRESS);
+                              }
                             });
 
                             context('when the relayer is allowed by the user', () => {
@@ -777,7 +787,7 @@ describe('Swaps', () => {
                     sharedBeforeEach('tweak the main pool to give back as much as it receives', async () => {
                       const [poolAddress] = (await vault.getPool(mainPoolId)) as [string, unknown];
                       const pool = await deployedAt('MockPool', poolAddress);
-                      await pool.setMultiplier(fp(1));
+                      await pool.setMultiplier(FP_ONE);
                     });
 
                     beforeEach('tweak sender and recipient to be other address', async () => {
@@ -1049,9 +1059,8 @@ describe('Swaps', () => {
                             sharedBeforeEach('grant permission to relayer', async () => {
                               const single = await actionId(vault, 'swap');
                               const batch = await actionId(vault, 'batchSwap');
-                              await authorizer
-                                .connect(admin)
-                                .grantPermissions([single, batch], other.address, [ANY_ADDRESS, ANY_ADDRESS]);
+                              await authorizer.connect(admin).grantPermission(single, other.address, ANY_ADDRESS);
+                              await authorizer.connect(admin).grantPermission(batch, other.address, ANY_ADDRESS);
                             });
 
                             context('when the relayer is allowed by the user', () => {
@@ -1075,9 +1084,12 @@ describe('Swaps', () => {
                             sharedBeforeEach('revoke permission from relayer', async () => {
                               const single = await actionId(vault, 'swap');
                               const batch = await actionId(vault, 'batchSwap');
-                              await authorizer
-                                .connect(admin)
-                                .revokePermissions([single, batch], other.address, [ANY_ADDRESS, ANY_ADDRESS]);
+                              if (await authorizer.hasPermission(single, other.address, ANY_ADDRESS)) {
+                                await authorizer.connect(admin).revokePermission(single, other.address, ANY_ADDRESS);
+                              }
+                              if (await authorizer.hasPermission(batch, other.address, ANY_ADDRESS)) {
+                                await authorizer.connect(admin).revokePermission(batch, other.address, ANY_ADDRESS);
+                              }
                             });
 
                             context('when the relayer is allowed by the user', () => {

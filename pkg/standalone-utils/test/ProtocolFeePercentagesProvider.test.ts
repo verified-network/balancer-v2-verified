@@ -4,10 +4,11 @@ import { BigNumber, BigNumberish, Contract } from 'ethers';
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/dist/src/signer-with-address';
 
 import { deploy, deployedAt, getArtifact } from '@balancer-labs/v2-helpers/src/contract';
-import { ZERO_ADDRESS } from '@balancer-labs/v2-helpers/src/constants';
 import { actionId } from '@balancer-labs/v2-helpers/src/models/misc/actions';
 import * as expectEvent from '@balancer-labs/v2-helpers/src/test/expectEvent';
-import { fp } from '@balancer-labs/v2-helpers/src/numbers';
+import { fp, FP_100_PCT } from '@balancer-labs/v2-helpers/src/numbers';
+import Vault from '@balancer-labs/v2-helpers/src/models/vault/Vault';
+import { sharedBeforeEach } from '@balancer-labs/v2-common/sharedBeforeEach';
 
 describe('ProtocolFeePercentagesProvider', function () {
   let admin: SignerWithAddress, authorized: SignerWithAddress, other: SignerWithAddress;
@@ -35,8 +36,7 @@ describe('ProtocolFeePercentagesProvider', function () {
   });
 
   sharedBeforeEach('deploy vault', async () => {
-    authorizer = await deploy('v2-vault/TimelockAuthorizer', { args: [admin.address, ZERO_ADDRESS, 0] });
-    vault = await deploy('v2-vault/Vault', { args: [authorizer.address, ZERO_ADDRESS, 0, 0] });
+    ({ instance: vault, authorizer } = await Vault.create({ admin }));
     feesCollector = await deployedAt('v2-vault/ProtocolFeesCollector', await vault.getProtocolFeesCollector());
   });
 
@@ -44,7 +44,7 @@ describe('ProtocolFeePercentagesProvider', function () {
     it('reverts if the maximum yield value is too high', async () => {
       await expect(
         deploy('ProtocolFeePercentagesProvider', {
-          args: [vault.address, fp(1).add(1), 0],
+          args: [vault.address, FP_100_PCT.add(1), 0],
         })
       ).to.be.revertedWith('Invalid maximum fee percentage');
     });
@@ -52,14 +52,14 @@ describe('ProtocolFeePercentagesProvider', function () {
     it('reverts if the maximum aum value is too high', async () => {
       await expect(
         deploy('ProtocolFeePercentagesProvider', {
-          args: [vault.address, 0, fp(1).add(1)],
+          args: [vault.address, 0, FP_100_PCT.add(1)],
         })
       ).to.be.revertedWith('Invalid maximum fee percentage');
     });
 
     it('emits ProtocolFeeTypeRegistered events for custom types', async () => {
       // We deploy manually instead of using our helper to get the transaction receipt
-      const artifact = await getArtifact('ProtocolFeePercentagesProvider');
+      const artifact = getArtifact('ProtocolFeePercentagesProvider');
       const factory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, (await ethers.getSigners())[0]);
       const instance = await factory.deploy(vault.address, MAX_YIELD_VALUE, MAX_AUM_VALUE);
       const receipt = await instance.deployTransaction.wait();
@@ -79,7 +79,7 @@ describe('ProtocolFeePercentagesProvider', function () {
 
     it('emits ProtocolFeePercentageChanged events for custom types', async () => {
       // We deploy manually instead of using our helper to get the transaction receipt
-      const artifact = await getArtifact('ProtocolFeePercentagesProvider');
+      const artifact = getArtifact('ProtocolFeePercentagesProvider');
       const factory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, (await ethers.getSigners())[0]);
       const instance = await factory.deploy(vault.address, MAX_YIELD_VALUE, MAX_AUM_VALUE);
       const receipt = await instance.deployTransaction.wait();
@@ -205,18 +205,25 @@ describe('ProtocolFeePercentagesProvider', function () {
               sharedBeforeEach('grant permission to caller', async () => {
                 await authorizer
                   .connect(admin)
-                  .grantPermissions([actionId(provider, 'setFeeTypePercentage')], authorized.address, [
-                    provider.address,
-                  ]);
+                  .grantPermission(actionId(provider, 'setFeeTypePercentage'), authorized.address, provider.address);
               });
 
               context('when the provider is authorized', () => {
                 sharedBeforeEach('grant permission to provider', async () => {
-                  await authorizer.connect(admin).grantPermissions(
-                    ['setSwapFeePercentage', 'setFlashLoanFeePercentage'].map((fn) => actionId(feesCollector, fn)),
-                    provider.address,
-                    [feesCollector.address, feesCollector.address]
-                  );
+                  await authorizer
+                    .connect(admin)
+                    .grantPermission(
+                      actionId(feesCollector, 'setSwapFeePercentage'),
+                      provider.address,
+                      feesCollector.address
+                    );
+                  await authorizer
+                    .connect(admin)
+                    .grantPermission(
+                      actionId(feesCollector, 'setFlashLoanFeePercentage'),
+                      provider.address,
+                      feesCollector.address
+                    );
                 });
 
                 function itSetsTheValueCorrectly(feeType: number, value: BigNumber) {
@@ -284,9 +291,7 @@ describe('ProtocolFeePercentagesProvider', function () {
               sharedBeforeEach('grant permission to caller', async () => {
                 await authorizer
                   .connect(admin)
-                  .grantPermissions([actionId(provider, 'setFeeTypePercentage')], authorized.address, [
-                    provider.address,
-                  ]);
+                  .grantPermission(actionId(provider, 'setFeeTypePercentage'), authorized.address, provider.address);
               });
 
               function itSetsTheValueCorrectly(feeType: number, value: BigNumber) {
@@ -346,11 +351,12 @@ describe('ProtocolFeePercentagesProvider', function () {
 
     describe('native fee type out of band change', () => {
       sharedBeforeEach('grant permission', async () => {
-        await authorizer.connect(admin).grantPermissions(
-          ['setSwapFeePercentage', 'setFlashLoanFeePercentage'].map((fn) => actionId(feesCollector, fn)),
-          other.address,
-          [feesCollector.address, feesCollector.address]
-        );
+        await authorizer
+          .connect(admin)
+          .grantPermission(actionId(feesCollector, 'setSwapFeePercentage'), other.address, feesCollector.address);
+        await authorizer
+          .connect(admin)
+          .grantPermission(actionId(feesCollector, 'setFlashLoanFeePercentage'), other.address, feesCollector.address);
       });
 
       describe('swap fee', () => {
@@ -376,7 +382,7 @@ describe('ProtocolFeePercentagesProvider', function () {
         sharedBeforeEach('grant permission', async () => {
           await authorizer
             .connect(admin)
-            .grantPermissions([actionId(provider, 'registerFeeType')], authorized.address, [provider.address]);
+            .grantPermission(actionId(provider, 'registerFeeType'), authorized.address, provider.address);
         });
 
         context('when the fee type is already in use', () => {
@@ -398,7 +404,7 @@ describe('ProtocolFeePercentagesProvider', function () {
         context('when the maximum value is above 100%', () => {
           it('reverts', async () => {
             await expect(
-              provider.connect(authorized).registerFeeType(NEW_FEE_TYPE, '', fp(1).add(1), 0)
+              provider.connect(authorized).registerFeeType(NEW_FEE_TYPE, '', FP_100_PCT.add(1), 0)
             ).to.be.revertedWith('Invalid maximum fee percentage');
           });
         });
@@ -476,7 +482,7 @@ describe('ProtocolFeePercentagesProvider', function () {
 
             await authorizer
               .connect(admin)
-              .grantPermissions([actionId(provider, 'setFeeTypePercentage')], authorized.address, [provider.address]);
+              .grantPermission(actionId(provider, 'setFeeTypePercentage'), authorized.address, provider.address);
 
             await provider.connect(authorized).setFeeTypePercentage(NEW_FEE_TYPE, fp(0.042));
             expect(await provider.getFeeTypePercentage(NEW_FEE_TYPE)).to.equal(fp(0.042));

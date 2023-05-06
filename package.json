@@ -9,7 +9,7 @@
     "url": "https://github.com/balancer-labs/balancer-v2-monorepo/issues"
   },
   "engines": {
-    "node": ">=12.10"
+    "node": ">=14.18.0 <15"
   },
   "contributors": [
     "Daniel Fernandez <daniel@balancer.finance>",
@@ -20,11 +20,12 @@
     "John Grant <john@balancer.finance>",
     "Mike McDonald <mike@balancer.finance>",
     "Nicolás Venturo <nico@balancer.finance>",
-    "Tom French <tom@balancer.finance>"
+    "Tom French <tom@balancer.finance>",
+    "Igor Yalovoy <igor@balancerlabs.dev>"
   ],
   "scripts": {
     "build": "yarn workspaces foreach --parallel --verbose  run build",
-    "lint": "yarn workspaces foreach --parallel --verbose run lint",
+    "lint": "NODE_NO_WARNINGS=1 yarn workspaces foreach --parallel --verbose run lint",
     "test": "yarn workspaces foreach --parallel --verbose run test"
   },
   "workspaces": [

@@ -1,0 +1,10 @@
+<<<<<<< HEAD:pkg/deployments/tasks/20220404-erc4626-linear-pool-v2/output/mainnet.json
+{
+  "ERC4626LinearPoolFactory": "0xE061bF85648e9FA7b59394668CfEef980aEc4c66",
+  "timestamp": 1649102093957
+}
+=======
+{
+  "ERC4626LinearPoolFactory": "0xE061bF85648e9FA7b59394668CfEef980aEc4c66"
+}
+>>>>>>> origin/master:pkg/deployments/tasks/deprecated/20220404-erc4626-linear-pool-v2/output/mainnet.json

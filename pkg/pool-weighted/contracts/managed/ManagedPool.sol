@@ -15,1028 +15,558 @@
 pragma solidity ^0.7.0;
 pragma experimental ABIEncoderV2;
 
+import "@balancer-labs/v2-interfaces/contracts/pool-utils/IVersion.sol";
+import "@balancer-labs/v2-interfaces/contracts/pool-utils/IRecoveryModeHelper.sol";
+import "@balancer-labs/v2-interfaces/contracts/pool-weighted/IExternalWeightedMath.sol";
 import "@balancer-labs/v2-interfaces/contracts/pool-weighted/WeightedPoolUserData.sol";
-import "@balancer-labs/v2-interfaces/contracts/pool-utils/IControlledManagedPool.sol";
-import "@balancer-labs/v2-interfaces/contracts/standalone-utils/IProtocolFeePercentagesProvider.sol";
 
-import "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/ReentrancyGuard.sol";
-import "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/EnumerableMap.sol";
-import "@balancer-labs/v2-solidity-utils/contracts/helpers/ERC20Helpers.sol";
-import "@balancer-labs/v2-solidity-utils/contracts/helpers/WordCodec.sol";
-import "@balancer-labs/v2-solidity-utils/contracts/helpers/ArrayHelpers.sol";
+import "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
+import "@balancer-labs/v2-solidity-utils/contracts/helpers/InputHelpers.sol";
 
-import "@balancer-labs/v2-pool-utils/contracts/protocol-fees/InvariantGrowthProtocolSwapFees.sol";
-import "@balancer-labs/v2-pool-utils/contracts/protocol-fees/ProtocolFeeCache.sol";
+import "@balancer-labs/v2-pool-utils/contracts/lib/BasePoolMath.sol";
+import "@balancer-labs/v2-pool-utils/contracts/lib/ComposablePoolLib.sol";
+import "@balancer-labs/v2-pool-utils/contracts/lib/PoolRegistrationLib.sol";
 
-import "../lib/GradualValueChange.sol";
-import "../lib/WeightCompression.sol";
-
-import "../BaseWeightedPool.sol";
+import "./ManagedPoolSettings.sol";
 
 /**
- * @dev Weighted Pool with mutable tokens and weights, designed to be used in conjunction with a pool controller
- * contract (as the owner, containing any specific business logic). Since the pool itself permits "dangerous"
+ * @title Managed Pool
+ * @dev Weighted Pool with mutable tokens and weights, designed to be used in conjunction with a contract
+ * (as the owner, containing any specific business logic). Since the pool itself permits "dangerous"
  * operations, it should never be deployed with an EOA as the owner.
  *
- * Pool controllers can add functionality: for example, allow the effective "owner" to be transferred to another
- * address. (The actual pool owner is still immutable, set to the pool controller contract.) Another pool owner
- * might allow fine-grained permissioning of protected operations: perhaps a multisig can add/remove tokens, but
- * a third-party EOA is allowed to set the swap fees.
+ * The owner contract can impose arbitrary access control schemes on its permissions: it might allow a multisig
+ * to add or remove tokens, and let an EOA set the swap fees.
  *
- * Pool controllers might also impose limits on functionality so that operations that might endanger LPs can be
- * performed more safely. For instance, the pool by itself places no restrictions on the duration of a gradual
- * weight change, but a pool controller might restrict this in various ways, from a simple minimum duration,
- * to a more complex rate limit.
+ * Pool owners can also serve as intermediate contracts to hold tokens, deploy timelocks, consult with
+ * other protocols or on-chain oracles, or bundle several operations into one transaction that re-entrancy
+ * protection would prevent initiating from the pool contract.
  *
- * Pool controllers can also serve as intermediate contracts to hold tokens, deploy timelocks, consult with other
- * protocols or on-chain oracles, or bundle several operations into one transaction that re-entrancy protection
- * would prevent initiating from the pool contract.
- *
- * Managed Pools and their controllers are designed to support many asset management use cases, including: large
- * token counts, rebalancing through token changes, gradual weight or fee updates, fine-grained control of
- * protocol and management fees, allowlisting of LPs, and more.
+ * Managed Pools are designed to support many asset management use cases, including: large token counts,
+ * rebalancing through token changes, gradual weight or fee updates, fine-grained control of protocol and
+ * management fees, allowlisting of LPs, and more.
  */
-contract ManagedPool is BaseWeightedPool, ProtocolFeeCache, ReentrancyGuard, IControlledManagedPool {
+contract ManagedPool is IVersion, ManagedPoolSettings {
     // ManagedPool weights and swap fees can change over time: these periods are expected to be long enough (e.g. days)
     // that any timestamp manipulation would achieve very little.
     // solhint-disable not-rely-on-time
 
     using FixedPoint for uint256;
-    using WordCodec for bytes32;
-    using WeightCompression for uint256;
+    using BasePoolUserData for bytes;
     using WeightedPoolUserData for bytes;
 
-    // State variables
+    // The maximum imposed by the Vault, which stores balances in a packed format, is 2**(112) - 1.
+    // We are only minting half of the maximum value - already an amount many orders of magnitude greater than any
+    // conceivable real liquidity - to allow for minting new BPT as a result of regular joins.
+    uint256 private constant _PREMINTED_TOKEN_BALANCE = 2**(111);
+    IExternalWeightedMath private immutable _weightedMath;
+    IRecoveryModeHelper private immutable _recoveryModeHelper;
+    string private _version;
 
-    // The upper bound is WeightedMath.MAX_WEIGHTED_TOKENS, but this is constrained by other factors, such as Pool
-    // creation gas consumption.
-    uint256 private constant _MAX_MANAGED_TOKENS = 38;
-
-    // The swap fee cannot be 100%: calculations that divide by (1-fee) would revert with division by zero.
-    // Swap fees close to 100% can still cause reverts when performing join/exit swaps, if the calculated fee
-    // amounts exceed the pool's token balances in the Vault. 80% is a very high, but relatively safe maximum value.
-    uint256 private constant _MAX_SWAP_FEE_PERCENTAGE = 80e16; // 80%
-
-    uint256 private constant _MAX_MANAGEMENT_SWAP_FEE_PERCENTAGE = 1e18; // 100%
-
-    uint256 private constant _MAX_MANAGEMENT_AUM_FEE_PERCENTAGE = 1e17; // 10%
-
-    // Use the _miscData slot in BasePool
-    // The first 64 bits are reserved for the swap fee
-    //
-    // Store non-token-based values:
-    // Start/end timestamps for gradual weight and swap fee updates
-    // Start/end values of the swap fee (The MSB "start" swap fee corresponds to the reserved bits in BasePool,
-    // and cannot be written from this contract.)
-    // Flags for the LP allowlist and enabling/disabling trading
-    // [ 64 bits  |  1 bit  |   1 bit   |  62 bits | 32 bits |  32 bits  |  32 bits |  32 bits  ]
-    // [ swap fee | LP flag | swap flag | end swap | fee end | fee start | end wgt  | start wgt ]
-    // |MSB                                                                                  LSB|
-    uint256 private constant _WEIGHT_START_TIME_OFFSET = 0;
-    uint256 private constant _WEIGHT_END_TIME_OFFSET = 32;
-    uint256 private constant _FEE_START_TIME_OFFSET = 64;
-    uint256 private constant _FEE_END_TIME_OFFSET = 96;
-    uint256 private constant _END_SWAP_FEE_PERCENTAGE_OFFSET = 128;
-    uint256 private constant _SWAP_ENABLED_OFFSET = 190;
-    uint256 private constant _MUST_ALLOWLIST_LPS_OFFSET = 191;
-    uint256 private constant _SWAP_FEE_PERCENTAGE_OFFSET = 192;
-
-    // Store scaling factor and start/end denormalized weights for each token
-    // Mapping should be more efficient than trying to compress it further
-    // [ 123 bits |  5 bits  |  64 bits   |   64 bits    |
-    // [ unused   | decimals | end denorm | start denorm |
-    // |MSB                                           LSB|
-    mapping(IERC20 => bytes32) private _tokenState;
-
-    // Denormalized weights are stored using the WeightCompression library as a percentage of the maximum absolute
-    // denormalized weight: independent of the current _denormWeightSum, which avoids having to recompute the denorm
-    // weights as the sum changes.
-    uint256 private constant _MAX_DENORM_WEIGHT = 1e22; // FP 10,000
-
-    uint256 private constant _START_DENORM_WEIGHT_OFFSET = 0;
-    uint256 private constant _END_DENORM_WEIGHT_OFFSET = 64;
-    uint256 private constant _DECIMAL_DIFF_OFFSET = 128;
-
-    // If mustAllowlistLPs is enabled, this is the list of addresses allowed to join the pool
-    mapping(address => bool) private _allowedAddresses;
-
-    // We need to work with normalized weights (i.e. they should add up to 100%), but storing normalized weights
-    // would require updating all weights whenever one of them changes, for example in an add or remove token
-    // operation. Instead, we keep track of the sum of all denormalized weights, and dynamically normalize them
-    // for I/O by multiplying or dividing by the `_denormWeightSum`.
-    //
-    // In this contract, "weights" mean normalized weights, and "denormWeights" refer to how they are stored internally.
-    uint256 private _denormWeightSum;
-
-    // Percentage of swap fees that are allocated to the Pool owner, after protocol fees
-    uint256 private _managementSwapFeePercentage;
-
-    // Store the token count locally (can change if tokens are added or removed)
-    uint256 private _totalTokensCache;
-
-    // Percentage of the pool's TVL to pay as management AUM fees over the course of a year.
-    uint256 private _managementAumFeePercentage;
-
-    // Timestamp of the most recent collection of management AUM fees.
-    // Note that this is only initialized the first time fees are collected.
-    uint256 private _lastAumFeeCollectionTimestamp;
-
-    // Event declarations
-
-    event GradualWeightUpdateScheduled(
-        uint256 startTime,
-        uint256 endTime,
-        uint256[] startWeights,
-        uint256[] endWeights
-    );
-    event SwapEnabledSet(bool swapEnabled);
-    event MustAllowlistLPsSet(bool mustAllowlistLPs);
-    event ManagementSwapFeePercentageChanged(uint256 managementSwapFeePercentage);
-    event ManagementAumFeePercentageChanged(uint256 managementAumFeePercentage);
-    event ManagementAumFeeCollected(uint256 bptAmount);
-    event AllowlistAddressAdded(address indexed member);
-    event AllowlistAddressRemoved(address indexed member);
-    event GradualSwapFeeUpdateScheduled(
-        uint256 startTime,
-        uint256 endTime,
-        uint256 startSwapFeePercentage,
-        uint256 endSwapFeePercentage
-    );
-    event TokenAdded(IERC20 indexed token, uint256 normalizedWeight, uint256 tokenAmountIn);
-    event TokenRemoved(IERC20 indexed token, uint256 normalizedWeight, uint256 tokenAmountOut);
-
-    struct NewPoolParams {
+    struct ManagedPoolParams {
         string name;
         string symbol;
-        IERC20[] tokens;
-        uint256[] normalizedWeights;
         address[] assetManagers;
-        uint256 swapFeePercentage;
-        bool swapEnabledOnStart;
-        bool mustAllowlistLPs;
-        uint256 managementSwapFeePercentage;
-        uint256 managementAumFeePercentage;
+    }
+
+    struct ManagedPoolConfigParams {
+        IVault vault;
+        IProtocolFeePercentagesProvider protocolFeeProvider;
+        IExternalWeightedMath weightedMath;
+        IRecoveryModeHelper recoveryModeHelper;
+        uint256 pauseWindowDuration;
+        uint256 bufferPeriodDuration;
+        string version;
     }
 
     constructor(
-        NewPoolParams memory params,
-        IVault vault,
-        IProtocolFeePercentagesProvider protocolFeeProvider,
-        address owner,
-        uint256 pauseWindowDuration,
-        uint256 bufferPeriodDuration
+        ManagedPoolParams memory params,
+        ManagedPoolConfigParams memory configParams,
+        ManagedPoolSettingsParams memory settingsParams,
+        address owner
     )
-        BaseWeightedPool(
-            vault,
+        NewBasePool(
+            configParams.vault,
+            PoolRegistrationLib.registerComposablePool(
+                configParams.vault,
+                IVault.PoolSpecialization.MINIMAL_SWAP_INFO,
+                settingsParams.tokens,
+                params.assetManagers
+            ),
             params.name,
             params.symbol,
-            params.tokens,
-            params.assetManagers,
-            params.swapFeePercentage,
-            pauseWindowDuration,
-            bufferPeriodDuration,
-            owner,
-            true
+            configParams.pauseWindowDuration,
+            configParams.bufferPeriodDuration,
+            owner
         )
-        ProtocolFeeCache(protocolFeeProvider)
+        ManagedPoolSettings(settingsParams, configParams.protocolFeeProvider)
     {
-        uint256 totalTokens = params.tokens.length;
-        InputHelpers.ensureInputLengthMatch(totalTokens, params.normalizedWeights.length, params.assetManagers.length);
+        _weightedMath = configParams.weightedMath;
+        _recoveryModeHelper = configParams.recoveryModeHelper;
+        _version = configParams.version;
+    }
 
-        _totalTokensCache = totalTokens;
+    function version() external view override returns (string memory) {
+        return _version;
+    }
 
-        // Validate and set initial fees
-        _setManagementSwapFeePercentage(params.managementSwapFeePercentage);
+    function _getWeightedMath() internal view returns (IExternalWeightedMath) {
+        return _weightedMath;
+    }
 
-        _setManagementAumFeePercentage(params.managementAumFeePercentage);
+    function _getRecoveryModeHelper() internal view returns (IRecoveryModeHelper) {
+        return _recoveryModeHelper;
+    }
 
-        // Initialize the denormalized weight sum to ONE. This value can only be changed by adding or removing tokens.
-        _denormWeightSum = FixedPoint.ONE;
+    // Virtual Supply
 
-        uint256 currentTime = block.timestamp;
-        _startGradualWeightChange(
-            currentTime,
-            currentTime,
-            params.normalizedWeights,
-            params.normalizedWeights,
-            params.tokens
+    /**
+     * @notice Returns the number of tokens in circulation.
+     * @dev In other pools, this would be the same as `totalSupply`, but since this pool pre-mints BPT and holds it in
+     * the Vault as a token, we need to subtract the Vault's balance to get the total "circulating supply". Both the
+     * totalSupply and Vault balance can change. If users join or exit using swaps, some of the preminted BPT are
+     * exchanged, so the Vault's balance increases after joins and decreases after exits. If users call the recovery
+     * mode exit function, the totalSupply can change as BPT are burned.
+     *
+     * The virtual supply can also be calculated by calling ComposablePoolLib.dropBptFromBalances with appropriate
+     * inputs, which is the preferred approach whenever possible, as it avoids extra calls to the Vault.
+     */
+    function _getVirtualSupply() internal view override returns (uint256) {
+        (uint256 cash, uint256 managed, , ) = getVault().getPoolTokenInfo(getPoolId(), IERC20(this));
+        // We don't need to use SafeMath here as the Vault restricts token balances to be less than 2**112.
+        // This ensures that `cash + managed` cannot overflow and the Pool's balance of BPT cannot exceed the total
+        // supply so we cannot underflow either.
+        return totalSupply() - (cash + managed);
+    }
+
+    // Swap Hooks
+
+    /**
+     * @dev Dispatch code for all kinds of swaps. Depending on the tokens involved this could result in a join, exit or
+     * a standard swap between two token in the Pool.
+     *
+     * The return value is expected to be downscaled (appropriately rounded based on the swap type) ready to be passed
+     * to the Vault.
+     */
+    function _onSwapMinimal(
+        SwapRequest memory request,
+        uint256 balanceTokenIn,
+        uint256 balanceTokenOut
+    ) internal override returns (uint256) {
+        bytes32 poolState = _getPoolState();
+
+        // ManagedPool is a composable Pool, so a swap could be either a join swap, an exit swap, or a token swap.
+        // By checking whether the incoming or outgoing token is the BPT, we can determine which kind of
+        // operation we want to perform and pass it to the appropriate handler.
+        //
+        // We block all types of swap if swaps are disabled as a token swap is equivalent to a join swap followed by
+        // an exit swap into a different token.
+        _require(ManagedPoolStorageLib.getSwapEnabled(poolState), Errors.SWAPS_DISABLED);
+
+        if (request.tokenOut == IERC20(this)) {
+            // `tokenOut` is the BPT, so this is a join swap.
+
+            // Check allowlist for LPs, if applicable
+            _require(_isAllowedAddress(poolState, request.from), Errors.ADDRESS_NOT_ALLOWLISTED);
+
+            // This is equivalent to `_getVirtualSupply()`, but as `balanceTokenOut` is the Vault's balance of BPT
+            // we can avoid querying this value again from the Vault as we do in `_getVirtualSupply()`.
+            uint256 virtualSupply = totalSupply() - balanceTokenOut;
+
+            // See documentation for `getActualSupply()` and `_collectAumManagementFees()`.
+            uint256 actualSupply = virtualSupply + _collectAumManagementFees(virtualSupply);
+
+            return _onJoinSwap(request, balanceTokenIn, actualSupply, poolState);
+        } else if (request.tokenIn == IERC20(this)) {
+            // `tokenIn` is the BPT, so this is an exit swap.
+
+            // Note that we do not check the LP allowlist here. LPs must always be able to exit the pool,
+            // and enforcing the allowlist would allow the manager to perform DOS attacks on LPs.
+
+            // This is equivalent to `_getVirtualSupply()`, but as `balanceTokenIn` is the Vault's balance of BPT
+            // we can avoid querying this value again from the Vault as we do in `_getVirtualSupply()`.
+            uint256 virtualSupply = totalSupply() - balanceTokenIn;
+
+            // See documentation for `getActualSupply()` and `_collectAumManagementFees()`.
+            uint256 actualSupply = virtualSupply + _collectAumManagementFees(virtualSupply);
+
+            return _onExitSwap(request, balanceTokenOut, actualSupply, poolState);
+        } else {
+            // Neither token is the BPT, so this is a standard token swap.
+            return _onTokenSwap(request, balanceTokenIn, balanceTokenOut, poolState);
+        }
+    }
+
+    /*
+     * @dev Called when a swap with the Pool occurs, where the tokens leaving the Pool are BPT.
+     *
+     * This function is responsible for upscaling any amounts received, in particular `balanceTokenIn`
+     * and `request.amount`.
+     *
+     * The return value is expected to be downscaled (appropriately rounded based on the swap type) ready to be passed
+     * to the Vault.
+     */
+    function _onJoinSwap(
+        SwapRequest memory request,
+        uint256 balanceTokenIn,
+        uint256 actualSupply,
+        bytes32 poolState
+    ) internal view returns (uint256) {
+        // Check whether joins are enabled.
+        _require(ManagedPoolStorageLib.getJoinExitEnabled(poolState), Errors.JOINS_EXITS_DISABLED);
+
+        // We first query data needed to perform the joinswap, i.e. the token weight and scaling factor as well as the
+        // Pool's swap fee.
+        (uint256 tokenInWeight, uint256 scalingFactorTokenIn) = _getTokenInfo(
+            request.tokenIn,
+            ManagedPoolStorageLib.getGradualWeightChangeProgress(poolState)
         );
+        uint256 swapFeePercentage = ManagedPoolStorageLib.getSwapFeePercentage(poolState);
 
-        _startGradualSwapFeeChange(currentTime, currentTime, params.swapFeePercentage, params.swapFeePercentage);
+        // `_onSwapMinimal` passes unscaled values so we upscale the token balance.
+        balanceTokenIn = _upscale(balanceTokenIn, scalingFactorTokenIn);
 
-        // If false, the pool will start in the disabled state (prevents front-running the enable swaps transaction).
-        _setSwapEnabled(params.swapEnabledOnStart);
+        // We may also need to upscale `request.amount`, however we do not yet know this as that depends on whether that
+        // is a token amount (GIVEN_IN) or a BPT amount (GIVEN_OUT), which gets no scaling.
+        //
+        // Therefore we branch depending on the swap kind and calculate the `bptAmountOut` for GIVEN_IN joinswaps or the
+        // `amountIn` for GIVEN_OUT joinswaps. We call these values the `amountCalculated`.
+        uint256 amountCalculated;
+        if (request.kind == IVault.SwapKind.GIVEN_IN) {
+            // In `GIVEN_IN` joinswaps, `request.amount` is the amount of tokens entering the pool so we upscale with
+            // `scalingFactorTokenIn`.
+            request.amount = _upscale(request.amount, scalingFactorTokenIn);
 
-        // If true, only addresses on the manager-controlled allowlist may join the pool.
-        _setMustAllowlistLPs(params.mustAllowlistLPs);
+            // Once fees are removed we can then calculate the equivalent BPT amount.
+            amountCalculated = _getWeightedMath().calcBptOutGivenExactTokenIn(
+                balanceTokenIn,
+                tokenInWeight,
+                request.amount,
+                actualSupply,
+                swapFeePercentage
+            );
+        } else {
+            // In `GIVEN_OUT` joinswaps, `request.amount` is the amount of BPT leaving the pool, which does not need any
+            // scaling.
+            amountCalculated = _getWeightedMath().calcTokenInGivenExactBptOut(
+                balanceTokenIn,
+                tokenInWeight,
+                request.amount,
+                actualSupply,
+                swapFeePercentage
+            );
+        }
+
+        // A joinswap decreases the price of the token entering the Pool and increases the price of all other tokens.
+        // ManagedPool's circuit breakers prevent the tokens' prices from leaving certain bounds so we must  check that
+        // we haven't tripped a breaker as a result of the joinswap.
+        _checkCircuitBreakersOnJoinOrExitSwap(request, actualSupply, amountCalculated, true);
+
+        // Finally we downscale `amountCalculated` before we return it.
+        if (request.kind == IVault.SwapKind.GIVEN_IN) {
+            // BPT is leaving the Pool, which doesn't need scaling.
+            return amountCalculated;
+        } else {
+            // `amountCalculated` tokens are entering the Pool, so we round up.
+            return _downscaleUp(amountCalculated, scalingFactorTokenIn);
+        }
+    }
+
+    /*
+     * @dev Called when a swap with the Pool occurs, where the tokens entering the Pool are BPT.
+     *
+     * This function is responsible for upscaling any amounts received, in particular `balanceTokenOut`
+     * and `request.amount`.
+     *
+     * The return value is expected to be downscaled (appropriately rounded based on the swap type) ready to be passed
+     * to the Vault.
+     */
+    function _onExitSwap(
+        SwapRequest memory request,
+        uint256 balanceTokenOut,
+        uint256 actualSupply,
+        bytes32 poolState
+    ) internal view returns (uint256) {
+        // Check whether exits are enabled.
+        _require(ManagedPoolStorageLib.getJoinExitEnabled(poolState), Errors.JOINS_EXITS_DISABLED);
+
+        // We first query data needed to perform the exitswap, i.e. the token weight and scaling factor as well as the
+        // Pool's swap fee.
+        (uint256 tokenOutWeight, uint256 scalingFactorTokenOut) = _getTokenInfo(
+            request.tokenOut,
+            ManagedPoolStorageLib.getGradualWeightChangeProgress(poolState)
+        );
+        uint256 swapFeePercentage = ManagedPoolStorageLib.getSwapFeePercentage(poolState);
+
+        // `_onSwapMinimal` passes unscaled values so we upscale the token balance.
+        balanceTokenOut = _upscale(balanceTokenOut, scalingFactorTokenOut);
+
+        // We may also need to upscale `request.amount`, however we do not yet know this as that depends on whether that
+        // is a BPT amount (GIVEN_IN), which gets no scaling, or a token amount (GIVEN_OUT).
+        //
+        // Therefore we branch depending on the swap kind and calculate the `amountOut` for GIVEN_IN exitswaps or the
+        // `bptAmountIn` for GIVEN_OUT exitswaps. We call these values the `amountCalculated`.
+        uint256 amountCalculated;
+        if (request.kind == IVault.SwapKind.GIVEN_IN) {
+            // In `GIVEN_IN` exitswaps, `request.amount` is the amount of BPT entering the pool, which does not need any
+            // scaling.
+            amountCalculated = _getWeightedMath().calcTokenOutGivenExactBptIn(
+                balanceTokenOut,
+                tokenOutWeight,
+                request.amount,
+                actualSupply,
+                swapFeePercentage
+            );
+        } else {
+            // In `GIVEN_OUT` exitswaps, `request.amount` is the amount of tokens leaving the pool so we upscale with
+            // `scalingFactorTokenOut`.
+            request.amount = _upscale(request.amount, scalingFactorTokenOut);
+
+            amountCalculated = _getWeightedMath().calcBptInGivenExactTokenOut(
+                balanceTokenOut,
+                tokenOutWeight,
+                request.amount,
+                actualSupply,
+                swapFeePercentage
+            );
+        }
+
+        // A exitswap increases the price of the token leaving the Pool and decreases the price of all other tokens.
+        // ManagedPool's circuit breakers prevent the tokens' prices from leaving certain bounds so we must  check that
+        // we haven't tripped a breaker as a result of the exitswap.
+        _checkCircuitBreakersOnJoinOrExitSwap(request, actualSupply, amountCalculated, false);
+
+        // Finally we downscale `amountCalculated` before we return it.
+        if (request.kind == IVault.SwapKind.GIVEN_IN) {
+            // `amountCalculated` tokens are exiting the Pool, so we round down.
+            return _downscaleDown(amountCalculated, scalingFactorTokenOut);
+        } else {
+            // BPT is entering the Pool, which doesn't need scaling.
+            return amountCalculated;
+        }
+    }
+
+    // Holds information for the tokens involved in a regular swap.
+    struct SwapTokenData {
+        uint256 tokenInWeight;
+        uint256 tokenOutWeight;
+        uint256 scalingFactorTokenIn;
+        uint256 scalingFactorTokenOut;
+    }
+
+    /*
+     * @dev Called when a swap with the Pool occurs, where neither of the tokens involved are the BPT of the Pool.
+     *
+     * This function is responsible for upscaling any amounts received, in particular `balanceTokenIn`,
+     * `balanceTokenOut` and `request.amount`.
+     *
+     * The return value is expected to be downscaled (appropriately rounded based on the swap type) ready to be passed
+     * to the Vault.
+     */
+    function _onTokenSwap(
+        SwapRequest memory request,
+        uint256 balanceTokenIn,
+        uint256 balanceTokenOut,
+        bytes32 poolState
+    ) internal view returns (uint256) {
+        // We first query data needed to perform the swap, i.e. token weights and scaling factors as well as the Pool's
+        // swap fee (in the form of its complement).
+        SwapTokenData memory tokenData = _getSwapTokenData(request, poolState);
+        uint256 swapFeeComplement = ManagedPoolStorageLib.getSwapFeePercentage(poolState).complement();
+
+        // `_onSwapMinimal` passes unscaled values so we upscale token balances using the appropriate scaling factors.
+        balanceTokenIn = _upscale(balanceTokenIn, tokenData.scalingFactorTokenIn);
+        balanceTokenOut = _upscale(balanceTokenOut, tokenData.scalingFactorTokenOut);
+
+        // We must also upscale `request.amount` however we do not yet know which scaling factor to use as this differs
+        // depending on whether it represents an amount of tokens entering (GIVEN_IN) or leaving (GIVEN_OUT) the Pool.
+        //
+        // Therefore we branch depending on the swap kind and calculate the `amountOut` for GIVEN_IN swaps or the
+        // `amountIn` for GIVEN_OUT swaps. We call these values the `amountCalculated`.
+        uint256 amountCalculated;
+        if (request.kind == IVault.SwapKind.GIVEN_IN) {
+            // In `GIVEN_IN` swaps, `request.amount` is the amount of tokens entering the pool so we upscale with
+            // `scalingFactorTokenIn`.
+            request.amount = _upscale(request.amount, tokenData.scalingFactorTokenIn);
+
+            // We then subtract swap fees from this amount so the collected swap fees aren't use to calculate how many
+            // tokens the trader will receive. We round this value down (favoring a higher fee amount).
+            uint256 amountInMinusFees = request.amount.mulDown(swapFeeComplement);
+
+            // Once fees are removed we can then calculate the equivalent amount of `tokenOut`.
+            amountCalculated = _getWeightedMath().calcOutGivenIn(
+                balanceTokenIn,
+                tokenData.tokenInWeight,
+                balanceTokenOut,
+                tokenData.tokenOutWeight,
+                amountInMinusFees
+            );
+        } else {
+            // In `GIVEN_OUT` swaps, `request.amount` is the amount of tokens leaving the pool so we upscale with
+            // `scalingFactorTokenOut`.
+            request.amount = _upscale(request.amount, tokenData.scalingFactorTokenOut);
+
+            // We first calculate how many tokens must be sent in order to receive `request.amount` tokens out.
+            // This calculation does not yet include fees.
+            uint256 amountInMinusFees = _getWeightedMath().calcInGivenOut(
+                balanceTokenIn,
+                tokenData.tokenInWeight,
+                balanceTokenOut,
+                tokenData.tokenOutWeight,
+                request.amount
+            );
+
+            // We then add swap fees to this amount so the trader must send extra tokens.
+            // We round this value up (favoring a higher fee amount).
+            amountCalculated = amountInMinusFees.divUp(swapFeeComplement);
+        }
+
+        // A token swap increases the price of the token leaving the Pool and reduces the price of the token entering
+        // the Pool. ManagedPool's circuit breakers prevent the tokens' prices from leaving certain bounds so we must
+        // check that we haven't tripped a breaker as a result of the token swap.
+        _checkCircuitBreakersOnRegularSwap(request, tokenData, balanceTokenIn, balanceTokenOut, amountCalculated);
+
+        // Finally we downscale `amountCalculated` before we return it. We want to round this value in favour of the
+        // Pool so apply different scaling on amounts entering or leaving the Pool.
+        if (request.kind == IVault.SwapKind.GIVEN_IN) {
+            // `amountCalculated` tokens are exiting the Pool, so we round down.
+            return _downscaleDown(amountCalculated, tokenData.scalingFactorTokenOut);
+        } else {
+            // `amountCalculated` tokens are entering the Pool, so we round up.
+            return _downscaleUp(amountCalculated, tokenData.scalingFactorTokenIn);
+        }
     }
 
     /**
-     * @notice Returns whether swaps are enabled.
+     * @dev Gather the information required to process a regular token swap. This is required to avoid stack-too-deep
+     * issues.
      */
-    function getSwapEnabled() public view returns (bool) {
-        return _getMiscData().decodeBool(_SWAP_ENABLED_OFFSET);
-    }
-
-    /**
-     * @notice Returns whether the allowlist for LPs is enabled.
-     */
-    function getMustAllowlistLPs() public view returns (bool) {
-        return _getMiscData().decodeBool(_MUST_ALLOWLIST_LPS_OFFSET);
-    }
-
-    /**
-     * @notice Check an LP address against the allowlist.
-     * @dev If the allowlist is not enabled, this returns true for every address.
-     * @param member - The address to check against the allowlist.
-     * @return true if the given address is allowed to join the pool.
-     */
-    function isAllowedAddress(address member) public view returns (bool) {
-        return !getMustAllowlistLPs() || _allowedAddresses[member];
-    }
-
-    /**
-     * @notice Returns the management swap fee percentage as an 18-decimal fixed point number.
-     */
-    function getManagementSwapFeePercentage() public view returns (uint256) {
-        return _managementSwapFeePercentage;
-    }
-
-    /**
-     * @notice Returns the timestamp of the last collection of AUM fees.
-     */
-    function getLastAumFeeCollectionTimestamp() external view returns (uint256) {
-        return _lastAumFeeCollectionTimestamp;
-    }
-
-    /**
-     * @notice Returns the current value of the swap fee percentage.
-     * @dev Computes the current swap fee percentage, which can change every block if a gradual swap fee
-     * update is in progress.
-     */
-    function getSwapFeePercentage() public view virtual override returns (uint256) {
-        (
-            uint256 startTime,
-            uint256 endTime,
-            uint256 startSwapFeePercentage,
-            uint256 endSwapFeePercentage
-        ) = _getSwapFeeFields();
-
-        return
-            GradualValueChange.getInterpolatedValue(startSwapFeePercentage, endSwapFeePercentage, startTime, endTime);
-    }
-
-    /**
-     * @notice Returns the current gradual swap fee update parameters.
-     * @dev The current swap fee can be retrieved via `getSwapFeePercentage()`.
-     * @return startTime - The timestamp when the swap fee update will begin.
-     * @return endTime - The timestamp when the swap fee update will end.
-     * @return startSwapFeePercentage - The starting swap fee percentage (could be different from the current value).
-     * @return endSwapFeePercentage - The final swap fee percentage, when the current timestamp >= endTime.
-     */
-    function getGradualSwapFeeUpdateParams()
-        external
-        view
-        returns (
-            uint256 startTime,
-            uint256 endTime,
-            uint256 startSwapFeePercentage,
-            uint256 endSwapFeePercentage
-        )
-    {
-        (startTime, endTime, startSwapFeePercentage, endSwapFeePercentage) = _getSwapFeeFields();
-    }
-
-    function _getSwapFeeFields()
+    function _getSwapTokenData(SwapRequest memory request, bytes32 poolState)
         private
         view
-        returns (
-            uint256 startTime,
-            uint256 endTime,
-            uint256 startSwapFeePercentage,
-            uint256 endSwapFeePercentage
-        )
+        returns (SwapTokenData memory tokenInfo)
     {
-        // Load the current pool state from storage
-        bytes32 poolState = _getMiscData();
+        bytes32 tokenInState = _getTokenState(request.tokenIn);
+        bytes32 tokenOutState = _getTokenState(request.tokenOut);
 
-        startTime = poolState.decodeUint(_FEE_START_TIME_OFFSET, 32);
-        endTime = poolState.decodeUint(_FEE_END_TIME_OFFSET, 32);
-        startSwapFeePercentage = poolState.decodeUint(_SWAP_FEE_PERCENTAGE_OFFSET, 64);
-        endSwapFeePercentage = poolState.decodeUint(_END_SWAP_FEE_PERCENTAGE_OFFSET, 62);
-    }
+        uint256 weightChangeProgress = ManagedPoolStorageLib.getGradualWeightChangeProgress(poolState);
+        tokenInfo.tokenInWeight = ManagedPoolTokenStorageLib.getTokenWeight(tokenInState, weightChangeProgress);
+        tokenInfo.tokenOutWeight = ManagedPoolTokenStorageLib.getTokenWeight(tokenOutState, weightChangeProgress);
 
-    function _setSwapFeePercentage(uint256 swapFeePercentage) internal virtual override {
-        // Do not allow setting if there is an ongoing fee change
-        uint256 currentTime = block.timestamp;
-        bytes32 poolState = _getMiscData();
-
-        uint256 endTime = poolState.decodeUint(_FEE_END_TIME_OFFSET, 32);
-        if (currentTime < endTime) {
-            uint256 startTime = poolState.decodeUint(_FEE_START_TIME_OFFSET, 32);
-            _revert(
-                currentTime < startTime ? Errors.SET_SWAP_FEE_PENDING_FEE_CHANGE : Errors.SET_SWAP_FEE_DURING_FEE_CHANGE
-            );
-        }
-
-        _setSwapFeeData(currentTime, currentTime, swapFeePercentage);
-
-        super._setSwapFeePercentage(swapFeePercentage);
+        tokenInfo.scalingFactorTokenIn = ManagedPoolTokenStorageLib.getTokenScalingFactor(tokenInState);
+        tokenInfo.scalingFactorTokenOut = ManagedPoolTokenStorageLib.getTokenScalingFactor(tokenOutState);
     }
 
     /**
-     * @notice Returns the management AUM fee percentage as an 18-decimal fixed point number.
+     * @notice Returns a token's weight and scaling factor
      */
-    function getManagementAumFeePercentage() public view returns (uint256) {
-        return _managementAumFeePercentage;
-    }
-
-    /**
-     * @notice Returns the current gradual weight change update parameters.
-     * @dev The current weights can be retrieved via `getNormalizedWeights()`.
-     * @return startTime - The timestamp when the weight update will begin.
-     * @return endTime - The timestamp when the weight update will end.
-     * @return startWeights - The starting weights, when the weight change was initiated.
-     * @return endWeights - The final weights, when the current timestamp >= endTime.
-     */
-    function getGradualWeightUpdateParams()
-        external
+    function _getTokenInfo(IERC20 token, uint256 weightChangeProgress)
+        private
         view
-        returns (
-            uint256 startTime,
-            uint256 endTime,
-            uint256[] memory startWeights,
-            uint256[] memory endWeights
-        )
+        returns (uint256 tokenWeight, uint256 scalingFactor)
     {
-        // Load current pool state from storage
-        bytes32 poolState = _getMiscData();
-
-        startTime = poolState.decodeUint(_WEIGHT_START_TIME_OFFSET, 32);
-        endTime = poolState.decodeUint(_WEIGHT_END_TIME_OFFSET, 32);
-
-        (IERC20[] memory tokens, , ) = getVault().getPoolTokens(getPoolId());
-        uint256 totalTokens = tokens.length;
-
-        startWeights = new uint256[](totalTokens);
-        endWeights = new uint256[](totalTokens);
-
-        uint256 denormWeightSum = _denormWeightSum;
-        for (uint256 i = 0; i < totalTokens; i++) {
-            bytes32 state = _tokenState[tokens[i]];
-
-            startWeights[i] = _normalizeWeight(
-                state.decodeUint(_START_DENORM_WEIGHT_OFFSET, 64).decompress(64, _MAX_DENORM_WEIGHT),
-                denormWeightSum
-            );
-            endWeights[i] = _normalizeWeight(
-                state.decodeUint(_END_DENORM_WEIGHT_OFFSET, 64).decompress(64, _MAX_DENORM_WEIGHT),
-                denormWeightSum
-            );
-        }
+        bytes32 tokenState = _getTokenState(token);
+        tokenWeight = ManagedPoolTokenStorageLib.getTokenWeight(tokenState, weightChangeProgress);
+        scalingFactor = ManagedPoolTokenStorageLib.getTokenScalingFactor(tokenState);
     }
 
-    /**
-     * @dev Returns the current sum of denormalized weights.
-     * @dev The normalization factor, which is used to efficiently scale weights when adding and removing.
-     * tokens. This value is an internal implementation detail and typically useless from the outside.
-     */
-    function getDenormalizedWeightSum() public view returns (uint256) {
-        return _denormWeightSum;
-    }
+    // Initialize
 
-    function _getMaxTokens() internal pure virtual override returns (uint256) {
-        return _MAX_MANAGED_TOKENS;
-    }
+    function _onInitializePool(
+        address sender,
+        address,
+        bytes memory userData
+    ) internal override returns (uint256 bptAmountOut, uint256[] memory amountsIn) {
+        // Check allowlist for LPs, if applicable
+        _require(_isAllowedAddress(_getPoolState(), sender), Errors.ADDRESS_NOT_ALLOWLISTED);
 
-    function _getTotalTokens() internal view virtual override returns (uint256) {
-        return _totalTokensCache;
-    }
+        // Ensure that the user intends to initialize the Pool.
+        WeightedPoolUserData.JoinKind kind = userData.joinKind();
+        _require(kind == WeightedPoolUserData.JoinKind.INIT, Errors.UNINITIALIZED);
 
-    /**
-     * @notice Schedule a gradual weight change.
-     * @dev The weights will change from their current values to the given endWeights, over startTime to endTime.
-     * This is a permissioned function.
-     *
-     * Since, unlike with swap fee updates, we do not generally want to allow instantanous weight changes,
-     * the weights always start from their current values. This also guarantees a smooth transition when
-     * updateWeightsGradually is called during an ongoing weight change.
-     * @param startTime - The timestamp when the weight change will begin.
-     * @param endTime - The timestamp when the weight change will end (can be >= startTime).
-     * @param endWeights - The target weights. If the current timestamp >= endTime, `getNormalizedWeights()`
-     * will return these values.
-     */
-    function updateWeightsGradually(
-        uint256 startTime,
-        uint256 endTime,
-        uint256[] memory endWeights
-    ) external override authenticate whenNotPaused nonReentrant {
-        (IERC20[] memory tokens, , ) = getVault().getPoolTokens(getPoolId());
+        // Extract the initial token balances `sender` is sending to the Pool.
+        (IERC20[] memory tokens, ) = _getPoolTokens();
+        amountsIn = userData.initialAmountsIn();
+        InputHelpers.ensureInputLengthMatch(amountsIn.length, tokens.length);
 
-        InputHelpers.ensureInputLengthMatch(tokens.length, endWeights.length);
+        // We now want to determine the correct amount of BPT to mint in return for these tokens.
+        // In order to do this we calculate the Pool's invariant which requires the token amounts to be upscaled.
+        uint256[] memory scalingFactors = _scalingFactors(tokens);
+        _upscaleArray(amountsIn, scalingFactors);
 
-        startTime = GradualValueChange.resolveStartTime(startTime, endTime);
+        uint256 invariantAfterJoin = _getWeightedMath().calculateInvariant(_getNormalizedWeights(tokens), amountsIn);
 
-        _startGradualWeightChange(startTime, endTime, _getNormalizedWeights(), endWeights, tokens);
-    }
+        // Set the initial BPT to the value of the invariant times the number of tokens. This makes BPT supply more
+        // consistent in Pools with similar compositions but different number of tokens.
+        bptAmountOut = Math.mul(invariantAfterJoin, amountsIn.length);
 
-    /**
-     * @notice Schedule a gradual swap fee update.
-     * @dev The swap fee will change from the given starting value (which may or may not be the current
-     * value) to the given ending fee percentage, over startTime to endTime. Calling this with a starting
-     * value avoids requiring an explicit external `setSwapFeePercentage` call.
-     *
-     * Note that calling this with a starting swap fee different from the current value will immediately change the
-     * current swap fee to `startSwapFeePercentage` (including emitting the SwapFeePercentageChanged event),
-     * before commencing the gradual change at `startTime`. Emits the GradualSwapFeeUpdateScheduled event.
-     * This is a permissioned function.
-     *
-     * @param startTime - The timestamp when the swap fee change will begin.
-     * @param endTime - The timestamp when the swap fee change will end (must be >= startTime).
-     * @param startSwapFeePercentage - The starting value for the swap fee change.
-     * @param endSwapFeePercentage - The ending value for the swap fee change. If the current timestamp >= endTime,
-     * `getSwapFeePercentage()` will return this value.
-     */
-    function updateSwapFeeGradually(
-        uint256 startTime,
-        uint256 endTime,
-        uint256 startSwapFeePercentage,
-        uint256 endSwapFeePercentage
-    ) external authenticate whenNotPaused nonReentrant {
-        _validateSwapFeePercentage(startSwapFeePercentage);
-        _validateSwapFeePercentage(endSwapFeePercentage);
+        // We don't need upscaled balances anymore and will need to return downscaled amounts so we downscale here.
+        // `amountsIn` are amounts entering the Pool, so we round up when doing this.
+        _downscaleUpArray(amountsIn, scalingFactors);
 
-        startTime = GradualValueChange.resolveStartTime(startTime, endTime);
-
-        _startGradualSwapFeeChange(startTime, endTime, startSwapFeePercentage, endSwapFeePercentage);
-    }
-
-    function _validateSwapFeePercentage(uint256 swapFeePercentage) private pure {
-        _require(swapFeePercentage >= _getMinSwapFeePercentage(), Errors.MIN_SWAP_FEE_PERCENTAGE);
-        _require(swapFeePercentage <= _getMaxSwapFeePercentage(), Errors.MAX_SWAP_FEE_PERCENTAGE);
-    }
-
-    /**
-     * @notice Adds an address to the LP allowlist.
-     * @dev Will fail if the LP allowlist is not enabled, or the address is already allowlisted.
-     * Emits the AllowlistAddressAdded event. This is a permissioned function.
-     * @param member - The address to be added to the allowlist.
-     */
-    function addAllowedAddress(address member) external override authenticate whenNotPaused {
-        _require(getMustAllowlistLPs(), Errors.FEATURE_DISABLED);
-        _require(!_allowedAddresses[member], Errors.ADDRESS_ALREADY_ALLOWLISTED);
-
-        _allowedAddresses[member] = true;
-        emit AllowlistAddressAdded(member);
-    }
-
-    /**
-     * @notice Removes an address from the LP allowlist.
-     * @dev Will fail if the LP allowlist is not enabled, or the address was not previously allowlisted.
-     * Emits the AllowlistAddressRemoved event. Do not allow removing addresses while the allowlist
-     * is disabled. This is a permissioned function.
-     * @param member - The address to be removed from the allowlist.
-     */
-    function removeAllowedAddress(address member) external override authenticate whenNotPaused {
-        _require(getMustAllowlistLPs(), Errors.FEATURE_DISABLED);
-        _require(_allowedAddresses[member], Errors.ADDRESS_NOT_ALLOWLISTED);
-
-        delete _allowedAddresses[member];
-        emit AllowlistAddressRemoved(member);
-    }
-
-    /**
-     * @notice Enable or disable the LP allowlist.
-     * @dev Note that any addresses added to the allowlist will be retained if the allowlist is toggled off and
-     * back on again, because adding or removing addresses is not allowed while the allowlist is disabled.
-     * Emits the MustAllowlistLPsSet event. This is a permissioned function.
-     * @param mustAllowlistLPs - The new value of the mustAllowlistLPs flag.
-     */
-    function setMustAllowlistLPs(bool mustAllowlistLPs) external override authenticate whenNotPaused {
-        _setMustAllowlistLPs(mustAllowlistLPs);
-    }
-
-    function _setMustAllowlistLPs(bool mustAllowlistLPs) private {
-        _setMiscData(_getMiscData().insertBool(mustAllowlistLPs, _MUST_ALLOWLIST_LPS_OFFSET));
-
-        emit MustAllowlistLPsSet(mustAllowlistLPs);
-    }
-
-    /**
-     * @notice Enable or disable trading.
-     * @dev Emits the SwapEnabledSet event. This is a permissioned function.
-     * @param swapEnabled - The new value of the swap enabled flag.
-     */
-    function setSwapEnabled(bool swapEnabled) external override authenticate whenNotPaused {
-        _setSwapEnabled(swapEnabled);
-    }
-
-    function _setSwapEnabled(bool swapEnabled) private {
-        _setMiscData(_getMiscData().insertBool(swapEnabled, _SWAP_ENABLED_OFFSET));
-
-        emit SwapEnabledSet(swapEnabled);
-    }
-
-    /**
-     * @notice Adds a token to the Pool's list of tradeable tokens.
-     * @dev Adds a token to the Pool's composition, sending funds to the Vault from `msg.sender`,
-     * and adjusting the weights of all other tokens.
-     *
-     * When calling this function with particular values for `normalizedWeight` and `tokenAmountIn`,
-     * the caller is stating that `tokenAmountIn` of the added token will correspond to a fraction `normalizedWeight`
-     * of the Pool's total value after it is added. Choosing these values inappropriately could result in large
-     * mispricings occurring between the new token and the existing assets in the Pool, causing loss of funds.
-     *
-     * Token addition is forbidden during a weight change, or if one is scheduled to happen in the future.
-     *
-     * The caller may additionally pass a non-zero `mintAmount` to have some BPT be minted for them, which might be
-     * useful in some scenarios to account for the fact that the Pool now has more tokens.
-     *
-     * This function takes the token, and the normalizedWeight it should have in the pool after being added.
-     * The stored (denormalized) weights of all other tokens remain unchanged, but `denormWeightSum` will increase,
-     * such that the normalized weight of the new token will match the target value, and the normalized weights of
-     * all other tokens will be reduced proportionately.
-     *
-     * Emits the TokenAdded event. This is a permissioned function.
-     *
-     * @param token - The ERC20 token to be added to the Pool.
-     * @param normalizedWeight - The normalized weight of `token` relative to the other tokens in the Pool.
-     * @param tokenAmountIn - The amount of `token` to be sent to the pool as its initial balance.
-     * @param mintAmount - The amount of BPT to be minted as a result of adding `token` to the Pool.
-     * @param recipient - The address to receive the BPT minted by the Pool.
-     */
-    function addToken(
-        IERC20 token,
-        uint256 normalizedWeight,
-        uint256 tokenAmountIn,
-        uint256 mintAmount,
-        address recipient
-    ) external authenticate whenNotPaused {
-        // To reduce the complexity of weight interactions, tokens cannot be removed during or before a weight change.
-        // Otherwise we'd have to reason about how changes in the weights of other tokens could affect the pricing
-        // between them and the newly added token, etc.
-        _ensureNoWeightChange();
-
-        (IERC20[] memory currentTokens, , ) = getVault().getPoolTokens(getPoolId());
-
-        uint256 weightSumAfterAdd = _validateAddToken(currentTokens, normalizedWeight);
-
-        // In order to add a token to a Pool we must perform a two step process:
-        // - First, the new token must be registered in the Vault as belonging to this Pool.
-        // - Second, a special join must be performed to seed the Pool with its initial balance of the new token.
-
-        // We only allow the Pool to perform the special join mentioned above to ensure it only happens
-        // as part of adding a new token to the Pool. The necessary tokens must then be held by the Pool.
-        // Transferring these tokens from the caller before the registration step ensures reentrancy safety.
-        token.transferFrom(msg.sender, address(this), tokenAmountIn);
-        token.approve(address(getVault()), tokenAmountIn);
-
-        _registerNewToken(token, normalizedWeight, weightSumAfterAdd);
-
-        // The Pool is now in an invalid state, since one of its tokens has a balance of zero (making the invariant also
-        // zero). We immediately perform a join using the newly added token to restore a valid state.
-        // Since all non-view Vault functions are non-reentrant, and we make no external calls between the two Vault
-        // calls (`registerTokens` and `joinPool`), it is impossible for any actor to interact with the Pool while it
-        // is in this inconsistent state (except for view calls).
-
-        // We now need the updated list of tokens in the Pool to construct the join call.
-        // As we know that the new token will be appended to the end of the existing array of tokens, we can save gas
-        // by constructing the updated list of tokens in memory rather than rereading from storage.
-        IERC20[] memory tokensAfterAdd = _appendToken(currentTokens, token);
-
-        // As described above, the new token corresponds the last position of the `maxAmountsIn` array.
-        uint256[] memory maxAmountsIn = new uint256[](tokensAfterAdd.length);
-        maxAmountsIn[tokensAfterAdd.length - 1] = tokenAmountIn;
-
-        getVault().joinPool(
-            getPoolId(),
-            address(this),
-            address(this),
-            IVault.JoinPoolRequest({
-                assets: _asIAsset(tokensAfterAdd),
-                maxAmountsIn: maxAmountsIn,
-                userData: abi.encode(WeightedPoolUserData.JoinKind.ADD_TOKEN, tokenAmountIn),
-                fromInternalBalance: false
-            })
-        );
-
-        // Adding the new token to the pool increases the total weight across all the Pool's tokens.
-        // We then update the sum of denormalized weights used to account for this.
-        _denormWeightSum = weightSumAfterAdd;
-
-        if (mintAmount > 0) {
-            _mintPoolTokens(recipient, mintAmount);
-        }
-
-        emit TokenAdded(token, normalizedWeight, tokenAmountIn);
-    }
-
-    function _validateAddToken(IERC20[] memory tokens, uint256 normalizedWeight) private view returns (uint256) {
-        // Sanity check that the new token will make up less than 100% of the Pool.
-        _require(normalizedWeight < FixedPoint.ONE, Errors.MAX_WEIGHT);
-        // Make sure the new token is above the minimum weight.
-        _require(normalizedWeight >= WeightedMath._MIN_WEIGHT, Errors.MIN_WEIGHT);
-
-        uint256 numTokens = tokens.length;
-        _require(numTokens + 1 <= _getMaxTokens(), Errors.MAX_TOKENS);
-
-        // The growth in the total weight of the pool can be easily calculated by:
+        // BasePool will mint `bptAmountOut` for the sender: we then also mint the remaining BPT to make up the total
+        // supply, and have the Vault pull those tokens from the sender as part of the join.
         //
-        // weightSumRatio = totalWeight / (totalWeight - newTokenWeight)
-        //
-        // As we're working with normalized weights, `totalWeight` is equal to 1.
-        //
-        // We can then easily calculate the new denormalized weight sum by applying this ratio to the old sum.
-        uint256 weightSumAfterAdd = _denormWeightSum.divDown(FixedPoint.ONE - normalizedWeight);
+        // Note that the sender need not approve BPT for the Vault as the Vault already has infinite BPT allowance for
+        // all accounts.
+        uint256 initialBpt = _PREMINTED_TOKEN_BALANCE.sub(bptAmountOut);
+        _mintPoolTokens(sender, initialBpt);
 
-        // We want to check if adding this new token results in any tokens falling below the minimum weight limit.
-        // Adding a new token could cause one of the other tokens to be pushed below the minimum weight.
-        // If any would fail this check, it would be the token with the lowest weight, so we search through all
-        // tokens to find the minimum weight. We can delay decompressing the weight until after the search.
-        uint256 minimumCompressedWeight = type(uint256).max;
-        for (uint256 i = 0; i < numTokens; i++) {
-            uint256 newCompressedWeight = _getTokenData(tokens[i]).decodeUint(_END_DENORM_WEIGHT_OFFSET, 64);
-            if (newCompressedWeight < minimumCompressedWeight) {
-                minimumCompressedWeight = newCompressedWeight;
-            }
-        }
+        // The Vault expects an array of amounts which includes BPT (which always sits in the first position).
+        // We then add an extra element to the beginning of the array and set it to `initialBpt`.
+        amountsIn = ComposablePoolLib.prependZeroElement(amountsIn);
+        amountsIn[0] = initialBpt;
 
-        // Now we know the minimum weight we can decompress it and check that it doesn't get pushed below the minimum.
-        _require(
-            minimumCompressedWeight.decompress(64, _MAX_DENORM_WEIGHT) >=
-                _denormalizeWeight(WeightedMath._MIN_WEIGHT, weightSumAfterAdd),
-            Errors.MIN_WEIGHT
-        );
+        // At this point we have all necessary return values for the initialization.
 
-        return weightSumAfterAdd;
+        // Finally, we want to start collecting AUM fees from this point onwards. Prior to initialization the Pool holds
+        // no funds so naturally charges no AUM fees.
+        _updateAumFeeCollectionTimestamp();
     }
 
-    function _registerNewToken(
-        IERC20 token,
-        uint256 normalizedWeight,
-        uint256 newDenormWeightSum
-    ) private {
-        IERC20[] memory tokensToAdd = new IERC20[](1);
-        tokensToAdd[0] = token;
+    // Join
 
-        // Since we do not allow new tokens to be registered with asset managers,
-        // pass an empty array for this parameter.
-        getVault().registerTokens(getPoolId(), tokensToAdd, new address[](1));
+    function _onJoinPool(
+        address sender,
+        uint256[] memory balances,
+        bytes memory userData
+    ) internal virtual override returns (uint256 bptAmountOut, uint256[] memory amountsIn) {
+        // The Vault passes an array of balances which includes the pool's BPT (This always sits in the first position).
+        // We want to separate this from the other balances before continuing with the join.
+        uint256 virtualSupply;
+        (virtualSupply, balances) = ComposablePoolLib.dropBptFromBalances(totalSupply(), balances);
 
-        // `_encodeTokenState` performs an external call to `token` (to get its decimals). Nevertheless, this is
-        // reentrancy safe. View functions are called in a STATICCALL context, and will revert if they modify state.
-        _tokenState[token] = _encodeTokenState(token, normalizedWeight, normalizedWeight, newDenormWeightSum);
-        _totalTokensCache += 1;
+        // We want to upscale all of the balances received from the Vault by the appropriate scaling factors.
+        // In order to do this we must query the Pool's tokens from the Vault as ManagedPool doesn't keep track.
+        (IERC20[] memory tokens, ) = _getPoolTokens();
+        uint256[] memory scalingFactors = _scalingFactors(tokens);
+        _upscaleArray(balances, scalingFactors);
+
+        // See documentation for `getActualSupply()` and `_collectAumManagementFees()`.
+        uint256 actualSupply = virtualSupply + _collectAumManagementFees(virtualSupply);
+        uint256[] memory normalizedWeights = _getNormalizedWeights(tokens);
+
+        (bptAmountOut, amountsIn) = _doJoin(
+            sender,
+            balances,
+            normalizedWeights,
+            scalingFactors,
+            actualSupply,
+            userData
+        );
+
+        _checkCircuitBreakers(actualSupply.add(bptAmountOut), tokens, balances, amountsIn, normalizedWeights, true);
+
+        // amountsIn are amounts entering the Pool, so we round up.
+        _downscaleUpArray(amountsIn, scalingFactors);
+
+        // The Vault expects an array of amounts which includes BPT so prepend an empty element to this array.
+        amountsIn = ComposablePoolLib.prependZeroElement(amountsIn);
     }
 
     /**
-     * @notice Removes a token from the Pool's list of tradeable tokens.
-     * @dev Removes a token from the Pool's composition, withdraws all funds from the Vault (sending them to
-     * `recipient`), and finally adjusts the weights of all other tokens.
-     *
-     * Tokens can only be removed if the Pool has more than 2 tokens, as it can never have fewer than 2. Token removal
-     * is also forbidden during a weight change, or if one is scheduled to happen in the future.
-     *
-     * Emits the TokenRemoved event. This is a permissioned function.
-     *
-     * The caller may additionally pass a non-zero `burnAmount` to burn some of their BPT, which might be useful
-     * in some scenarios to account for the fact that the Pool now has fewer tokens. This is a permissioned function.
-     * @param token - The ERC20 token to be removed from the Pool.
-     * @param recipient - The address to receive the Pool's balance of `token` after it is removed.
-     * @param burnAmount - The amount of BPT to be burned after removing `token` from the Pool.
-     * @param minAmountOut - Will revert if the number of tokens transferred from the Vault is less than this value.
-     * @return The amount of tokens the Pool held, sent to `recipient`.
+     * @dev Dispatch code which decodes the provided userdata to perform the specified join type.
      */
-    function removeToken(
-        IERC20 token,
-        address recipient,
-        uint256 burnAmount,
-        uint256 minAmountOut
-    ) external authenticate nonReentrant whenNotPaused returns (uint256) {
-        // We require the pool to be initialized (shown by the total supply being nonzero) in order to remove a token,
-        // maintaining the behaviour that no exits can occur before the pool has been initialized.
-        // This prevents the AUM fee calculation being triggered before the pool contains any assets.
-        _require(totalSupply() > 0, Errors.UNINITIALIZED);
-
-        // To reduce the complexity of weight interactions, tokens cannot be removed during or before a weight change.
-        _ensureNoWeightChange();
-
-        // Exit the pool, returning the full balance of the token to the recipient
-        (IERC20[] memory tokens, uint256[] memory unscaledBalances, ) = getVault().getPoolTokens(getPoolId());
-        _require(tokens.length > 2, Errors.MIN_TOKENS);
-
-        // Reverts if the token does not exist in the pool.
-        uint256 tokenIndex = _findTokenIndex(tokens, token);
-        uint256 tokenBalance = unscaledBalances[tokenIndex];
-        uint256 tokenNormalizedWeight = _getNormalizedWeight(token);
-
-        // We first perform a special exit operation, which will withdraw the entire token balance from the Vault.
-        // Only the Pool itself is authorized to initiate this kind of exit.
-        uint256[] memory minAmountsOut = new uint256[](tokens.length);
-        minAmountsOut[tokenIndex] = minAmountOut;
-
-        // Note that this exit will trigger collection of the AUM fees payable up to now.
-        getVault().exitPool(
-            getPoolId(),
-            address(this),
-            payable(recipient),
-            IVault.ExitPoolRequest({
-                assets: _asIAsset(tokens),
-                minAmountsOut: minAmountsOut,
-                userData: abi.encode(WeightedPoolUserData.ExitKind.REMOVE_TOKEN, tokenIndex),
-                toInternalBalance: false
-            })
-        );
-
-        // The Pool is now in an invalid state, since one of its tokens has a balance of zero (making the invariant also
-        // zero). We immediately deregister the emptied-out token to restore a valid state.
-        // Since all non-view Vault functions are non-reentrant, and we make no external calls between the two Vault
-        // calls (`exitPool` and `deregisterTokens`), it is impossible for any actor to interact with the Pool while it
-        // is in this inconsistent state (except for view calls).
-
-        IERC20[] memory tokensToRemove = new IERC20[](1);
-        tokensToRemove[0] = token;
-        getVault().deregisterTokens(getPoolId(), tokensToRemove);
-
-        // Now all we need to do is delete the removed token's entry and update the sum of denormalized weights to scale
-        // all other token weights accordingly.
-        // Clean up data structures and update the token count
-        delete _tokenState[token];
-        _denormWeightSum -= _denormalizeWeight(tokenNormalizedWeight, _denormWeightSum);
-
-        _totalTokensCache = tokens.length - 1;
-
-        if (burnAmount > 0) {
-            _burnPoolTokens(msg.sender, burnAmount);
-        }
-
-        emit TokenRemoved(token, tokenNormalizedWeight, tokenBalance);
-
-        return tokenBalance;
-    }
-
-    function _ensureNoWeightChange() private view {
-        uint256 currentTime = block.timestamp;
-        bytes32 poolState = _getMiscData();
-
-        uint256 endTime = poolState.decodeUint(_WEIGHT_END_TIME_OFFSET, 32);
-        if (currentTime < endTime) {
-            uint256 startTime = poolState.decodeUint(_WEIGHT_START_TIME_OFFSET, 32);
-            _revert(
-                currentTime < startTime
-                    ? Errors.CHANGE_TOKENS_PENDING_WEIGHT_CHANGE
-                    : Errors.CHANGE_TOKENS_DURING_WEIGHT_CHANGE
-            );
-        }
-    }
-
-    /**
-     * @notice Setter for the management swap fee percentage.
-     * @dev Attempting to collect swap fees in excess of the maximum permitted percentage will revert.
-     * Emits the ManagementSwapFeePercentageChanged event. This is a permissioned function.
-     * @param managementSwapFeePercentage - The new management swap fee percentage.
-     */
-    function setManagementSwapFeePercentage(uint256 managementSwapFeePercentage)
-        external
-        override
-        authenticate
-        whenNotPaused
-    {
-        _setManagementSwapFeePercentage(managementSwapFeePercentage);
-    }
-
-    function _setManagementSwapFeePercentage(uint256 managementSwapFeePercentage) private {
-        _require(
-            managementSwapFeePercentage <= _MAX_MANAGEMENT_SWAP_FEE_PERCENTAGE,
-            Errors.MAX_MANAGEMENT_SWAP_FEE_PERCENTAGE
-        );
-
-        _managementSwapFeePercentage = managementSwapFeePercentage;
-        emit ManagementSwapFeePercentageChanged(managementSwapFeePercentage);
-    }
-
-    /**
-     * @notice Setter for the yearly percentage AUM management fee, which is payable to the pool manager.
-     * @dev Attempting to collect AUM fees in excess of the maximum permitted percentage will revert.
-     * To avoid retroactive fee increases, we force collection at the current fee percentage before processing
-     * the update. Emits the ManagementAumFeePercentageChanged event. This is a permissioned function.
-     * @param managementAumFeePercentage - The new management AUM fee percentage.
-     * @return amount - The amount of BPT minted to the manager before the update, if any.
-     */
-    function setManagementAumFeePercentage(uint256 managementAumFeePercentage)
-        external
-        override
-        authenticate
-        whenNotPaused
-        returns (uint256 amount)
-    {
-        // We want to prevent the pool manager from retroactively increasing the amount of AUM fees payable.
-        // To prevent this, we perform a collection before updating the fee percentage.
-        // This is only necessary if the pool has been initialized (which is indicated by a nonzero total supply).
-        uint256 supplyBeforeFeeCollection = totalSupply();
-        if (supplyBeforeFeeCollection > 0) {
-            (, amount) = _collectAumManagementFees(supplyBeforeFeeCollection);
-        }
-
-        _setManagementAumFeePercentage(managementAumFeePercentage);
-    }
-
-    function _setManagementAumFeePercentage(uint256 managementAumFeePercentage) private {
-        _require(
-            managementAumFeePercentage <= _MAX_MANAGEMENT_AUM_FEE_PERCENTAGE,
-            Errors.MAX_MANAGEMENT_AUM_FEE_PERCENTAGE
-        );
-
-        _managementAumFeePercentage = managementAumFeePercentage;
-        emit ManagementAumFeePercentageChanged(managementAumFeePercentage);
-    }
-
-    /**
-     * @notice Collect any accrued AUM fees and send them to the pool manager.
-     * @dev This can be called by anyone to collect accrued AUM fees - and will be called automatically on
-     * joins and exits.
-     * @return The amount of BPT minted to the manager.
-     */
-    function collectAumManagementFees() external override whenNotPaused returns (uint256) {
-        // It only makes sense to collect AUM fees after the pool is initialized (as before then the AUM is zero).
-        // We can query if the pool is initialized by checking for a nonzero total supply.
-        // Reverting here prevents zero value AUM fee collections causing bogus events.
-        uint256 supplyBeforeFeeCollection = totalSupply();
-        if (supplyBeforeFeeCollection == 0) _revert(Errors.UNINITIALIZED);
-
-        (, uint256 managerAUMFees) = _collectAumManagementFees(supplyBeforeFeeCollection);
-        return managerAUMFees;
-    }
-
-    function _scalingFactor(IERC20 token) internal view virtual override returns (uint256) {
-        return _readScalingFactor(_getTokenData(token));
-    }
-
-    function _scalingFactors() internal view virtual override returns (uint256[] memory scalingFactors) {
-        (IERC20[] memory tokens, , ) = getVault().getPoolTokens(getPoolId());
-        uint256 numTokens = tokens.length;
-
-        scalingFactors = new uint256[](numTokens);
-
-        for (uint256 i = 0; i < numTokens; i++) {
-            scalingFactors[i] = _readScalingFactor(_tokenState[tokens[i]]);
-        }
-    }
-
-    function _getNormalizedWeight(IERC20 token) internal view override returns (uint256) {
-        bytes32 tokenData = _getTokenData(token);
-        uint256 startWeight = tokenData.decodeUint(_START_DENORM_WEIGHT_OFFSET, 64).decompress(64, _MAX_DENORM_WEIGHT);
-        uint256 endWeight = tokenData.decodeUint(_END_DENORM_WEIGHT_OFFSET, 64).decompress(64, _MAX_DENORM_WEIGHT);
-
-        bytes32 poolState = _getMiscData();
-        uint256 startTime = poolState.decodeUint(_WEIGHT_START_TIME_OFFSET, 32);
-        uint256 endTime = poolState.decodeUint(_WEIGHT_END_TIME_OFFSET, 32);
-
-        return
-            _normalizeWeight(
-                GradualValueChange.getInterpolatedValue(startWeight, endWeight, startTime, endTime),
-                _denormWeightSum
-            );
-    }
-
-    // This could be simplified by simply iteratively calling _getNormalizedWeight(), but this routine is
-    // called very frequently, so we are optimizing for runtime performance.
-    function _getNormalizedWeights() internal view override returns (uint256[] memory normalizedWeights) {
-        (IERC20[] memory tokens, , ) = getVault().getPoolTokens(getPoolId());
-        uint256 numTokens = tokens.length;
-
-        normalizedWeights = new uint256[](numTokens);
-
-        bytes32 poolState = _getMiscData();
-        uint256 startTime = poolState.decodeUint(_WEIGHT_START_TIME_OFFSET, 32);
-        uint256 endTime = poolState.decodeUint(_WEIGHT_END_TIME_OFFSET, 32);
-
-        uint256 denormWeightSum = _denormWeightSum;
-        for (uint256 i = 0; i < numTokens; i++) {
-            bytes32 tokenData = _tokenState[tokens[i]];
-            uint256 startWeight = tokenData.decodeUint(_START_DENORM_WEIGHT_OFFSET, 64).decompress(
-                64,
-                _MAX_DENORM_WEIGHT
-            );
-            uint256 endWeight = tokenData.decodeUint(_END_DENORM_WEIGHT_OFFSET, 64).decompress(64, _MAX_DENORM_WEIGHT);
-
-            normalizedWeights[i] = _normalizeWeight(
-                GradualValueChange.getInterpolatedValue(startWeight, endWeight, startTime, endTime),
-                denormWeightSum
-            );
-        }
-    }
-
-    // Swap overrides - revert unless swaps are enabled
-
-    function _onSwapGivenIn(
-        SwapRequest memory swapRequest,
-        uint256 currentBalanceTokenIn,
-        uint256 currentBalanceTokenOut
-    ) internal virtual override returns (uint256) {
-        _require(getSwapEnabled(), Errors.SWAPS_DISABLED);
-
-        // balances (and swapRequest.amount) are already upscaled by BaseMinimalSwapInfoPool.onSwap
-        uint256 amountOut = super._onSwapGivenIn(swapRequest, currentBalanceTokenIn, currentBalanceTokenOut);
-
-        // We can calculate the invariant growth ratio more easily using the ratios of the Pool's balances before and
-        // after the trade.
-        //
-        // invariantGrowthRatio = invariant after trade / invariant before trade
-        //                      = (x + a_in)^w1 * (y - a_out)^w2 / (x^w1 * y^w2)
-        //                      = (1 + a_in/x)^w1 * (1 - a_out/y)^w2
-        uint256[] memory normalizedWeights = ArrayHelpers.arrayFill(
-            _getNormalizedWeight(swapRequest.tokenIn),
-            _getNormalizedWeight(swapRequest.tokenOut)
-        );
-        uint256[] memory balanceRatios = ArrayHelpers.arrayFill(
-            FixedPoint.ONE.add(_addSwapFeeAmount(swapRequest.amount).divDown(currentBalanceTokenIn)),
-            FixedPoint.ONE.sub(amountOut.divDown(currentBalanceTokenOut))
-        );
-
-        uint256 invariantGrowthRatio = WeightedMath._calculateInvariant(normalizedWeights, balanceRatios);
-        _payProtocolAndManagementFees(invariantGrowthRatio);
-
-        return amountOut;
-    }
-
-    function _onSwapGivenOut(
-        SwapRequest memory swapRequest,
-        uint256 currentBalanceTokenIn,
-        uint256 currentBalanceTokenOut
-    ) internal virtual override returns (uint256) {
-        _require(getSwapEnabled(), Errors.SWAPS_DISABLED);
-
-        // balances (and swapRequest.amount) are already upscaled by BaseMinimalSwapInfoPool.onSwap
-        uint256 amountIn = super._onSwapGivenOut(swapRequest, currentBalanceTokenIn, currentBalanceTokenOut);
-
-        // We can calculate the invariant growth ratio more easily using the ratios of the Pool's balances before and
-        // after the trade.
-        //
-        // invariantGrowthRatio = invariant after trade / invariant before trade
-        //                      = (x + a_in)^w1 * (y - a_out)^w2 / (x^w1 * y^w2)
-        //                      = (1 + a_in/x)^w1 * (1 - a_out/y)^w2
-        uint256[] memory balanceRatios = ArrayHelpers.arrayFill(
-            FixedPoint.ONE.add(_addSwapFeeAmount(amountIn).divDown(currentBalanceTokenIn)),
-            FixedPoint.ONE.sub(swapRequest.amount.divDown(currentBalanceTokenOut))
-        );
-        uint256[] memory normalizedWeights = ArrayHelpers.arrayFill(
-            _getNormalizedWeight(swapRequest.tokenIn),
-            _getNormalizedWeight(swapRequest.tokenOut)
-        );
-
-        uint256 invariantGrowthRatio = WeightedMath._calculateInvariant(normalizedWeights, balanceRatios);
-        _payProtocolAndManagementFees(invariantGrowthRatio);
-
-        return amountIn;
-    }
-
-    function _payProtocolAndManagementFees(uint256 invariantGrowthRatio) private {
-        // Calculate total BPT for the protocol and management fee
-        // The management fee percentage applies to the remainder,
-        // after the protocol fee has been collected.
-        // So totalFee = protocolFee + (1 - protocolFee) * managementFee
-        uint256 protocolSwapFeePercentage = getProtocolFeePercentageCache(ProtocolFeeType.SWAP);
-        uint256 managementSwapFeePercentage = _managementSwapFeePercentage;
-
-        if (protocolSwapFeePercentage == 0 && managementSwapFeePercentage == 0) {
-            return;
-        }
-
-        // Fees are bounded, so we don't need checked math
-        uint256 totalFeePercentage = protocolSwapFeePercentage +
-            (FixedPoint.ONE - protocolSwapFeePercentage).mulDown(managementSwapFeePercentage);
-
-        // No other balances are changing, so the other terms in the invariant will cancel out
-        // when computing the ratio. So this partial invariant calculation is sufficient.
-        // We pass the same value for total supply twice as we're measuring over a period in which the total supply
-        // has not changed.
-        uint256 supply = totalSupply();
-        uint256 totalBptAmount = InvariantGrowthProtocolSwapFees.calcDueProtocolFees(
-            invariantGrowthRatio,
-            supply,
-            supply,
-            totalFeePercentage
-        );
-
-        // Calculate the portion of the total fee due the protocol
-        // If the protocol fee were 30% and the manager fee 10%, the protocol would take 30% first.
-        // Then the manager would take 10% of the remaining 70% (that is, 7%), for a total fee of 37%
-        // The protocol would then earn 0.3/0.37 ~=81% of the total fee,
-        // and the manager would get 0.1/0.75 ~=13%.
-        uint256 protocolBptAmount = totalBptAmount.mulUp(protocolSwapFeePercentage.divUp(totalFeePercentage));
-
-        _payProtocolFees(protocolBptAmount);
-
-        // Pay the remainder in management fees
-        // This goes to the controller, which needs to be able to withdraw them
-        if (managementSwapFeePercentage > 0) {
-            _mintPoolTokens(getOwner(), totalBptAmount.sub(protocolBptAmount));
-        }
-    }
-
-    // Join/Exit overrides
-
     function _doJoin(
         address sender,
         uint256[] memory balances,
@@ -1044,341 +574,342 @@ contract ManagedPool is BaseWeightedPool, ProtocolFeeCache, ReentrancyGuard, ICo
         uint256[] memory scalingFactors,
         uint256 totalSupply,
         bytes memory userData
-    ) internal view override returns (uint256, uint256[] memory) {
+    ) internal view returns (uint256, uint256[] memory) {
+        bytes32 poolState = _getPoolState();
+
+        // Check whether joins are enabled.
+        _require(ManagedPoolStorageLib.getJoinExitEnabled(poolState), Errors.JOINS_EXITS_DISABLED);
+
+        WeightedPoolUserData.JoinKind kind = userData.joinKind();
+
         // If swaps are disabled, only proportional joins are allowed. All others involve implicit swaps, and alter
         // token prices.
-        // Adding tokens is also allowed, as that action can only be performed by the manager, who is assumed to
-        // perform sensible checks.
-        WeightedPoolUserData.JoinKind kind = userData.joinKind();
         _require(
-            getSwapEnabled() ||
-                kind == WeightedPoolUserData.JoinKind.ALL_TOKENS_IN_FOR_EXACT_BPT_OUT ||
-                kind == WeightedPoolUserData.JoinKind.ADD_TOKEN,
+            ManagedPoolStorageLib.getSwapEnabled(poolState) ||
+                kind == WeightedPoolUserData.JoinKind.ALL_TOKENS_IN_FOR_EXACT_BPT_OUT,
             Errors.INVALID_JOIN_EXIT_KIND_WHILE_SWAPS_DISABLED
         );
 
-        if (kind == WeightedPoolUserData.JoinKind.ADD_TOKEN) {
-            return _doJoinAddToken(sender, scalingFactors, userData);
-        } else {
-            // Check allowlist for LPs, if applicable
-            _require(isAllowedAddress(sender), Errors.ADDRESS_NOT_ALLOWLISTED);
+        // Check allowlist for LPs, if applicable
+        _require(_isAllowedAddress(poolState, sender), Errors.ADDRESS_NOT_ALLOWLISTED);
 
-            return super._doJoin(sender, balances, normalizedWeights, scalingFactors, totalSupply, userData);
+        if (kind == WeightedPoolUserData.JoinKind.EXACT_TOKENS_IN_FOR_BPT_OUT) {
+            return
+                _getWeightedMath().joinExactTokensInForBPTOut(
+                    balances,
+                    normalizedWeights,
+                    scalingFactors,
+                    totalSupply,
+                    ManagedPoolStorageLib.getSwapFeePercentage(poolState),
+                    userData
+                );
+        } else if (kind == WeightedPoolUserData.JoinKind.TOKEN_IN_FOR_EXACT_BPT_OUT) {
+            return
+                _getWeightedMath().joinTokenInForExactBPTOut(
+                    balances,
+                    normalizedWeights,
+                    totalSupply,
+                    ManagedPoolStorageLib.getSwapFeePercentage(poolState),
+                    userData
+                );
+        } else if (kind == WeightedPoolUserData.JoinKind.ALL_TOKENS_IN_FOR_EXACT_BPT_OUT) {
+            return _getWeightedMath().joinAllTokensInForExactBPTOut(balances, totalSupply, userData);
+        } else {
+            _revert(Errors.UNHANDLED_JOIN_KIND);
         }
     }
 
-    function _doJoinAddToken(
+    // Exit
+
+    function _onExitPool(
         address sender,
-        uint256[] memory scalingFactors,
+        uint256[] memory balances,
         bytes memory userData
-    ) private view returns (uint256, uint256[] memory) {
-        // This join function can only be called by the Pool itself - the authorization logic that governs when that
-        // call can be made resides in addToken.
-        _require(sender == address(this), Errors.UNAUTHORIZED_JOIN);
+    ) internal virtual override returns (uint256 bptAmountIn, uint256[] memory amountsOut) {
+        // The Vault passes an array of balances which includes the pool's BPT (This always sits in the first position).
+        // We want to separate this from the other balances before continuing with the exit.
+        uint256 virtualSupply;
+        (virtualSupply, balances) = ComposablePoolLib.dropBptFromBalances(totalSupply(), balances);
 
-        // No BPT will be issued for the join operation itself.
-        // The `addToken` function mints a user specified `mintAmount` of BPT atomically with this call.
-        uint256 bptAmountOut = 0;
+        // We want to upscale all of the balances received from the Vault by the appropriate scaling factors.
+        // In order to do this we must query the Pool's tokens from the Vault as ManagedPool doesn't keep track.
+        (IERC20[] memory tokens, ) = _getPoolTokens();
+        uint256[] memory scalingFactors = _scalingFactors(tokens);
+        _upscaleArray(balances, scalingFactors);
 
-        uint256 tokenIndex = scalingFactors.length - 1;
-        uint256 amountIn = userData.addToken();
+        // See documentation for `getActualSupply()` and `_collectAumManagementFees()`.
+        uint256 actualSupply = virtualSupply + _collectAumManagementFees(virtualSupply);
 
-        // amountIn is unscaled so we need to upscale it using the token's scale factor.
-        uint256[] memory amountsIn = new uint256[](scalingFactors.length);
-        amountsIn[tokenIndex] = _upscale(amountIn, scalingFactors[tokenIndex]);
+        uint256[] memory normalizedWeights = _getNormalizedWeights(tokens);
 
-        return (bptAmountOut, amountsIn);
+        (bptAmountIn, amountsOut) = _doExit(
+            sender,
+            balances,
+            normalizedWeights,
+            scalingFactors,
+            actualSupply,
+            userData
+        );
+
+        // Do not check circuit breakers on proportional exits, which do not change BPT prices.
+        if (userData.exitKind() != WeightedPoolUserData.ExitKind.EXACT_BPT_IN_FOR_TOKENS_OUT) {
+            _checkCircuitBreakers(
+                actualSupply.sub(bptAmountIn),
+                tokens,
+                balances,
+                amountsOut,
+                normalizedWeights,
+                false
+            );
+        }
+
+        // amountsOut are amounts exiting the Pool, so we round down.
+        _downscaleDownArray(amountsOut, scalingFactors);
+
+        // The Vault expects an array of amounts which includes BPT so prepend an empty element to this array.
+        amountsOut = ComposablePoolLib.prependZeroElement(amountsOut);
     }
 
+    /**
+     * @dev Dispatch code which decodes the provided userdata to perform the specified exit type.
+     * Inheriting contracts may override this function to add additional exit types or extra conditions to allow
+     * or disallow exit under certain circumstances.
+     */
     function _doExit(
-        address sender,
+        address,
         uint256[] memory balances,
         uint256[] memory normalizedWeights,
         uint256[] memory scalingFactors,
         uint256 totalSupply,
         bytes memory userData
-    ) internal view override returns (uint256, uint256[] memory) {
+    ) internal view virtual returns (uint256, uint256[] memory) {
+        bytes32 poolState = _getPoolState();
+
+        // Check whether exits are enabled. Recovery mode exits are not blocked by this check, since they are routed
+        // through a different codepath at the base pool layer.
+        _require(ManagedPoolStorageLib.getJoinExitEnabled(poolState), Errors.JOINS_EXITS_DISABLED);
+
+        WeightedPoolUserData.ExitKind kind = userData.exitKind();
+
         // If swaps are disabled, only proportional exits are allowed. All others involve implicit swaps, and alter
         // token prices.
-        // Removing tokens is also allowed, as that action can only be performed by the manager, who is assumed to
-        // perform sensible checks.
-        WeightedPoolUserData.ExitKind kind = userData.exitKind();
         _require(
-            getSwapEnabled() ||
-                kind == WeightedPoolUserData.ExitKind.EXACT_BPT_IN_FOR_TOKENS_OUT ||
-                kind == WeightedPoolUserData.ExitKind.REMOVE_TOKEN,
+            ManagedPoolStorageLib.getSwapEnabled(poolState) ||
+                kind == WeightedPoolUserData.ExitKind.EXACT_BPT_IN_FOR_TOKENS_OUT,
             Errors.INVALID_JOIN_EXIT_KIND_WHILE_SWAPS_DISABLED
         );
 
-        return
-            kind == WeightedPoolUserData.ExitKind.REMOVE_TOKEN
-                ? _doExitRemoveToken(sender, balances, userData)
-                : super._doExit(sender, balances, normalizedWeights, scalingFactors, totalSupply, userData);
+        // Note that we do not check the LP allowlist here. LPs must always be able to exit the pool,
+        // and enforcing the allowlist would allow the manager to perform DOS attacks on LPs.
+
+        if (kind == WeightedPoolUserData.ExitKind.EXACT_BPT_IN_FOR_ONE_TOKEN_OUT) {
+            return
+                _getWeightedMath().exitExactBPTInForTokenOut(
+                    balances,
+                    normalizedWeights,
+                    totalSupply,
+                    ManagedPoolStorageLib.getSwapFeePercentage(poolState),
+                    userData
+                );
+        } else if (kind == WeightedPoolUserData.ExitKind.EXACT_BPT_IN_FOR_TOKENS_OUT) {
+            return _getWeightedMath().exitExactBPTInForTokensOut(balances, totalSupply, userData);
+        } else if (kind == WeightedPoolUserData.ExitKind.BPT_IN_FOR_EXACT_TOKENS_OUT) {
+            return
+                _getWeightedMath().exitBPTInForExactTokensOut(
+                    balances,
+                    normalizedWeights,
+                    scalingFactors,
+                    totalSupply,
+                    ManagedPoolStorageLib.getSwapFeePercentage(poolState),
+                    userData
+                );
+        } else {
+            _revert(Errors.UNHANDLED_EXIT_KIND);
+        }
     }
 
-    function _doExitRemoveToken(
-        address sender,
-        uint256[] memory balances,
-        bytes memory userData
-    ) private view whenNotPaused returns (uint256, uint256[] memory) {
-        // This exit function is disabled if the contract is paused.
-
-        // This exit function can only be called by the Pool itself - the authorization logic that governs when that
-        // call can be made resides in removeToken.
-        _require(sender == address(this), Errors.UNAUTHORIZED_EXIT);
-
-        uint256 tokenIndex = userData.removeToken();
-
-        // No BPT is required to remove the token - it is up to the caller to determine under which conditions removing
-        // a token makes sense, and if e.g. burning BPT is required.
-        uint256 bptAmountIn = 0;
-
-        uint256[] memory amountsOut = new uint256[](balances.length);
-        amountsOut[tokenIndex] = balances[tokenIndex];
-
-        return (bptAmountIn, amountsOut);
-    }
-
-    /**
-     * @dev We cannot use the default RecoveryMode implementation here, since we need to prevent AUM fee collection.
-     */
     function _doRecoveryModeExit(
-        uint256[] memory balances,
+        uint256[] memory,
         uint256 totalSupply,
         bytes memory userData
-    ) internal virtual override returns (uint256, uint256[] memory) {
-        // Recovery mode exits bypass the AUM fee calculation which means that in the case where the Pool is paused and
-        // in Recovery mode for a period of time and then later returns to normal operation then AUM fees will be
-        // charged to the remaining LPs for the full period. We then update the collection timestamp on Recovery mode
-        // exits so that no AUM fees are accrued over this period.
-        _lastAumFeeCollectionTimestamp = block.timestamp;
-
-        return super._doRecoveryModeExit(balances, totalSupply, userData);
+    ) internal view override returns (uint256, uint256[] memory) {
+        return _getRecoveryModeHelper().calcComposableRecoveryAmountsOut(getPoolId(), userData, totalSupply);
     }
 
     /**
-     * @dev When calling updateWeightsGradually again during an update, reset the start weights to the current weights,
-     * if necessary.
+     * @notice Returns the tokens in the Pool and their current balances.
+     * @dev This function drops the BPT token and its balance from the returned arrays as these values are unused by
+     * internal functions outside of the swap/join/exit hooks.
      */
-    function _startGradualWeightChange(
-        uint256 startTime,
-        uint256 endTime,
-        uint256[] memory startWeights,
-        uint256[] memory endWeights,
-        IERC20[] memory tokens
-    ) internal virtual {
-        uint256 normalizedSum;
+    function _getPoolTokens() internal view override returns (IERC20[] memory, uint256[] memory) {
+        (IERC20[] memory registeredTokens, uint256[] memory registeredBalances, ) = getVault().getPoolTokens(
+            getPoolId()
+        );
+        return ComposablePoolLib.dropBpt(registeredTokens, registeredBalances);
+    }
 
-        uint256 denormWeightSum = _denormWeightSum;
-        for (uint256 i = 0; i < endWeights.length; i++) {
-            uint256 endWeight = endWeights[i];
-            _require(endWeight >= WeightedMath._MIN_WEIGHT, Errors.MIN_WEIGHT);
-            normalizedSum = normalizedSum.add(endWeight);
+    // Circuit Breakers
 
-            IERC20 token = tokens[i];
-            _tokenState[token] = _encodeTokenState(token, startWeights[i], endWeight, denormWeightSum);
-        }
+    // Depending on the type of operation, we may need to check only the upper or lower bound, or both.
+    enum BoundCheckKind { LOWER, UPPER, BOTH }
 
-        // Ensure that the normalized weights sum to ONE
-        _require(normalizedSum == FixedPoint.ONE, Errors.NORMALIZED_WEIGHT_INVARIANT);
+    /**
+     * @dev Check the circuit breakers of the two tokens involved in a regular swap.
+     */
+    function _checkCircuitBreakersOnRegularSwap(
+        SwapRequest memory request,
+        SwapTokenData memory tokenData,
+        uint256 balanceTokenIn,
+        uint256 balanceTokenOut,
+        uint256 amountCalculated
+    ) private view {
+        uint256 actualSupply = _getActualSupply(_getVirtualSupply());
 
-        _setMiscData(
-            _getMiscData().insertUint(startTime, _WEIGHT_START_TIME_OFFSET, 32).insertUint(
-                endTime,
-                _WEIGHT_END_TIME_OFFSET,
-                32
-            )
+        (uint256 amountIn, uint256 amountOut) = request.kind == IVault.SwapKind.GIVEN_IN
+            ? (request.amount, amountCalculated)
+            : (amountCalculated, request.amount);
+
+        // Since the balance of tokenIn is increasing, its BPT price will decrease,
+        // so we need to check the lower bound.
+        _checkCircuitBreaker(
+            BoundCheckKind.LOWER,
+            request.tokenIn,
+            actualSupply,
+            balanceTokenIn.add(amountIn),
+            tokenData.tokenInWeight
         );
 
-        emit GradualWeightUpdateScheduled(startTime, endTime, startWeights, endWeights);
-    }
-
-    function _startGradualSwapFeeChange(
-        uint256 startTime,
-        uint256 endTime,
-        uint256 startSwapFeePercentage,
-        uint256 endSwapFeePercentage
-    ) internal virtual {
-        if (startSwapFeePercentage != getSwapFeePercentage()) {
-            super._setSwapFeePercentage(startSwapFeePercentage);
-        }
-
-        _setSwapFeeData(startTime, endTime, endSwapFeePercentage);
-
-        emit GradualSwapFeeUpdateScheduled(startTime, endTime, startSwapFeePercentage, endSwapFeePercentage);
-    }
-
-    function _setSwapFeeData(
-        uint256 startTime,
-        uint256 endTime,
-        uint256 endSwapFeePercentage
-    ) private {
-        _setMiscData(
-            _getMiscData()
-                .insertUint(startTime, _FEE_START_TIME_OFFSET, 32)
-                .insertUint(endTime, _FEE_END_TIME_OFFSET, 32)
-                .insertUint(endSwapFeePercentage, _END_SWAP_FEE_PERCENTAGE_OFFSET, 62)
+        // Since the balance of tokenOut is decreasing, its BPT price will increase,
+        // so we need to check the upper bound.
+        _checkCircuitBreaker(
+            BoundCheckKind.UPPER,
+            request.tokenOut,
+            actualSupply,
+            balanceTokenOut.sub(amountOut),
+            tokenData.tokenOutWeight
         );
     }
 
-    // Factored out to avoid stack issues
-    function _encodeTokenState(
+    /**
+     * @dev We need to check the breakers for all tokens on joins and exits (including join and exit swaps), since any
+     * change to the BPT supply affects all BPT prices. For a multi-token join or exit, we will have a set of
+     * balances and amounts. For a join/exitSwap, only one token balance is changing. We can use the same data for
+     *  both: in the single token swap case, the other token `amounts` will be zero.
+     */
+    function _checkCircuitBreakersOnJoinOrExitSwap(
+        SwapRequest memory request,
+        uint256 actualSupply,
+        uint256 amountCalculated,
+        bool isJoin
+    ) private view {
+        uint256 newActualSupply;
+        uint256 amount;
+
+        // This is a swap between the BPT token and another pool token. Calculate the end state: actualSupply
+        // and the token amount being swapped, depending on whether it is a join or exit, GivenIn or GivenOut.
+        if (isJoin) {
+            (newActualSupply, amount) = request.kind == IVault.SwapKind.GIVEN_IN
+                ? (actualSupply.add(amountCalculated), request.amount)
+                : (actualSupply.add(request.amount), amountCalculated);
+        } else {
+            (newActualSupply, amount) = request.kind == IVault.SwapKind.GIVEN_IN
+                ? (actualSupply.sub(request.amount), amountCalculated)
+                : (actualSupply.sub(amountCalculated), request.amount);
+        }
+
+        // Since this is a swap, we do not have all the tokens, balances, or weights, and need to fetch them.
+        (IERC20[] memory tokens, uint256[] memory balances) = _getPoolTokens();
+        uint256[] memory normalizedWeights = _getNormalizedWeights(tokens);
+        _upscaleArray(balances, _scalingFactors(tokens));
+
+        // Initialize to all zeros, and set the amount associated with the swap.
+        uint256[] memory amounts = new uint256[](tokens.length);
+        IERC20 token = isJoin ? request.tokenIn : request.tokenOut;
+
+        for (uint256 i = 0; i < tokens.length; i++) {
+            if (tokens[i] == token) {
+                amounts[i] = amount;
+                break;
+            }
+        }
+
+        _checkCircuitBreakers(newActualSupply, tokens, balances, amounts, normalizedWeights, isJoin);
+    }
+
+    /**
+     * @dev Check circuit breakers for a set of tokens. The given virtual supply is what it will be post-operation:
+     * this includes any pending external fees, and the amount of BPT exchanged (swapped, minted, or burned) in the
+     * current operation.
+     *
+     * We pass in the tokens, upscaled balances, and weights necessary to compute BPT prices, then check the circuit
+     * breakers. Unlike a straightforward token swap, where we know the direction the BPT price will move, once the
+     * virtual supply changes, all bets are off. To be safe, we need to check both directions for all tokens.
+     *
+     * It does attempt to short circuit quickly if there is no bound set.
+     */
+    function _checkCircuitBreakers(
+        uint256 actualSupply,
+        IERC20[] memory tokens,
+        uint256[] memory balances,
+        uint256[] memory amounts,
+        uint256[] memory normalizedWeights,
+        bool isJoin
+    ) private view {
+        for (uint256 i = 0; i < balances.length; i++) {
+            uint256 finalBalance = (isJoin ? FixedPoint.add : FixedPoint.sub)(balances[i], amounts[i]);
+
+            // Since we cannot be sure which direction the BPT price of the token has moved,
+            // we must check both the lower and upper bounds.
+            _checkCircuitBreaker(BoundCheckKind.BOTH, tokens[i], actualSupply, finalBalance, normalizedWeights[i]);
+        }
+    }
+
+    // Check the appropriate circuit breaker(s) according to the BoundCheckKind.
+    function _checkCircuitBreaker(
+        BoundCheckKind checkKind,
         IERC20 token,
-        uint256 normalizedStartWeight,
-        uint256 normalizedEndWeight,
-        uint256 denormWeightSum
-    ) private view returns (bytes32) {
-        bytes32 tokenState;
+        uint256 actualSupply,
+        uint256 balance,
+        uint256 weight
+    ) private view {
+        bytes32 circuitBreakerState = _getCircuitBreakerState(token);
 
-        // Tokens with more than 18 decimals are not supported
-        // Scaling calculations must be exact/lossless
-        // Store decimal difference instead of actual scaling factor
-        return
-            tokenState
-                .insertUint(_encodeWeight(normalizedStartWeight, denormWeightSum), _START_DENORM_WEIGHT_OFFSET, 64)
-                .insertUint(_encodeWeight(normalizedEndWeight, denormWeightSum), _END_DENORM_WEIGHT_OFFSET, 64)
-                .insertUint(uint256(18).sub(ERC20(address(token)).decimals()), _DECIMAL_DIFF_OFFSET, 5);
-    }
-
-    // Broken out because the stack was too deep
-    function _encodeWeight(uint256 weight, uint256 sum) private pure returns (uint256) {
-        return _denormalizeWeight(weight, sum).compress(64, _MAX_DENORM_WEIGHT);
-    }
-
-    // Convert a decimal difference value to the scaling factor
-    function _readScalingFactor(bytes32 tokenState) private pure returns (uint256) {
-        uint256 decimalsDifference = tokenState.decodeUint(_DECIMAL_DIFF_OFFSET, 5);
-
-        return FixedPoint.ONE * 10**decimalsDifference;
-    }
-
-    /**
-     * @dev Extend ownerOnly functions to include the Managed Pool control functions.
-     */
-    function _isOwnerOnlyAction(bytes32 actionId)
-        internal
-        view
-        override(
-            // The ProtocolFeeCache module creates a small diamond that requires explicitly listing the parents here
-            BasePool,
-            BasePoolAuthorization
-        )
-        returns (bool)
-    {
-        return
-            (actionId == getActionId(ManagedPool.updateWeightsGradually.selector)) ||
-            (actionId == getActionId(ManagedPool.updateSwapFeeGradually.selector)) ||
-            (actionId == getActionId(ManagedPool.setSwapEnabled.selector)) ||
-            (actionId == getActionId(ManagedPool.addAllowedAddress.selector)) ||
-            (actionId == getActionId(ManagedPool.removeAllowedAddress.selector)) ||
-            (actionId == getActionId(ManagedPool.setMustAllowlistLPs.selector)) ||
-            (actionId == getActionId(ManagedPool.addToken.selector)) ||
-            (actionId == getActionId(ManagedPool.removeToken.selector)) ||
-            (actionId == getActionId(ManagedPool.setManagementSwapFeePercentage.selector)) ||
-            (actionId == getActionId(ManagedPool.setManagementAumFeePercentage.selector)) ||
-            super._isOwnerOnlyAction(actionId);
-    }
-
-    function _getMaxSwapFeePercentage() internal pure virtual override returns (uint256) {
-        return _MAX_SWAP_FEE_PERCENTAGE;
-    }
-
-    function _getTokenData(IERC20 token) private view returns (bytes32 tokenData) {
-        tokenData = _tokenState[token];
-
-        // A valid token can't be zero (must have non-zero weights)
-        _require(tokenData != 0, Errors.INVALID_TOKEN);
-    }
-
-    // Join/exit callbacks
-
-    function _beforeJoinExit(uint256[] memory, uint256[] memory) internal virtual override returns (uint256, uint256) {
-        // The AUM fee calculation is based on inflating the Pool's BPT supply by a target rate.
-        // We then must collect AUM fees whenever joining or exiting the pool to ensure that LPs only pay AUM fees
-        // for the period during which they are an LP within the pool: otherwise an LP could shift their share of the
-        // AUM fees onto the remaining LPs in the pool by exiting before they were paid.
-        uint256 supplyBeforeFeeCollection = totalSupply();
-        (uint256 protocolAUMFees, uint256 managerAUMFees) = _collectAumManagementFees(supplyBeforeFeeCollection);
-
-        // We return a zero value invariant here. We do this for three reasons:
-        // - ManagedPool doesn't make use of the invariant returned here so there's no benefit to calculating it.
-        // - ManagedPool enters an invalid state when adding/removing tokens which causes the invariant calculation
-        //   to fail.
-        // - We're planning on reworking this before deployment anyway.
-        return (supplyBeforeFeeCollection.add(protocolAUMFees + managerAUMFees), 0);
-    }
-
-    /**
-     * @dev Calculates the AUM fees accrued since the last collection and pays it to the pool manager.
-     * This function is called automatically on joins and exits.
-     */
-    function _collectAumManagementFees(uint256 totalSupply) internal returns (uint256, uint256) {
-        uint256 lastCollection = _lastAumFeeCollectionTimestamp;
-        uint256 currentTime = block.timestamp;
-
-        // If no time has passed since the last join/exit we've already collected fees so we can return early.
-        if (currentTime <= lastCollection) return (0, 0);
-
-        // Reset the collection timer to the current block
-        _lastAumFeeCollectionTimestamp = currentTime;
-
-        uint256 managementAumFeePercentage = getManagementAumFeePercentage();
-
-        // If `lastCollection` has not been set then we don't know what period over which to collect fees.
-        // We then perform an early return after initializing it so that we can collect fees next time. This
-        // means that AUM fees are not collected for any tokens the Pool is initialized with until the first
-        // non-initialization join or exit.
-        // We also perform an early return if the AUM fee is zero, to save gas.
-        if (managementAumFeePercentage == 0 || lastCollection == 0) {
-            return (0, 0);
+        if (checkKind == BoundCheckKind.LOWER || checkKind == BoundCheckKind.BOTH) {
+            _checkOneSidedCircuitBreaker(circuitBreakerState, actualSupply, balance, weight, true);
         }
 
-        // We want to collect fees so that the manager will receive `managementAumFeePercentage` percent of the Pool's
-        // AUM after a year. We compute the amount of BPT to mint for the manager that would allow it to proportionally
-        // exit the Pool and receive this fraction of the Pool's assets.
-        uint256 annualizedFee = ProtocolFees.bptForPoolOwnershipPercentage(totalSupply, managementAumFeePercentage);
-
-        // This value is annualized: in normal operation we will collect fees regularly over the course of the year.
-        // We then multiply this value by the fraction of the year which has elapsed since we last collected fees.
-        uint256 elapsedTime = currentTime - lastCollection;
-        uint256 bptAmount = Math.divDown(Math.mul(annualizedFee, elapsedTime), 365 days);
-
-        // Compute the protocol's share of the AUM fee
-        uint256 protocolBptAmount = bptAmount.mulUp(getProtocolFeePercentageCache(ProtocolFeeType.AUM));
-        uint256 managerBPTAmount = bptAmount.sub(protocolBptAmount);
-
-        _payProtocolFees(protocolBptAmount);
-
-        emit ManagementAumFeeCollected(managerBPTAmount);
-
-        _mintPoolTokens(getOwner(), managerBPTAmount);
-
-        return (protocolBptAmount, managerBPTAmount);
+        if (checkKind == BoundCheckKind.UPPER || checkKind == BoundCheckKind.BOTH) {
+            _checkOneSidedCircuitBreaker(circuitBreakerState, actualSupply, balance, weight, false);
+        }
     }
 
-    // Recovery Mode
+    // Check either the lower or upper bound circuit breaker for the given token.
+    function _checkOneSidedCircuitBreaker(
+        bytes32 circuitBreakerState,
+        uint256 actualSupply,
+        uint256 balance,
+        uint256 weight,
+        bool isLowerBound
+    ) private pure {
+        uint256 bound = CircuitBreakerStorageLib.getBptPriceBound(circuitBreakerState, weight, isLowerBound);
 
-    function _onDisableRecoveryMode() internal override {
-        // Recovery mode exits bypass the AUM fee calculation which means that in the case where the Pool is paused and
-        // in Recovery mode for a period of time and then later returns to normal operation then AUM fees will be
-        // charged to the remaining LPs for the full period. We then update the collection timestamp so that no AUM fees
-        // are accrued over this period.
-        _lastAumFeeCollectionTimestamp = block.timestamp;
+        _require(
+            !CircuitBreakerLib.hasCircuitBreakerTripped(actualSupply, weight, balance, bound, isLowerBound),
+            Errors.CIRCUIT_BREAKER_TRIPPED
+        );
     }
 
-    // Functions that convert weights between internal (denormalized) and external (normalized) representations
+    // Unimplemented
 
     /**
-     * @dev Converts a token weight from the internal representation (summing to denormWeightSum) to the normalized form
+     * @dev Unimplemented as ManagedPool uses the MinimalInfoSwap Pool specialization.
      */
-    function _normalizeWeight(uint256 denormWeight, uint256 denormWeightSum) private pure returns (uint256) {
-        return denormWeight.divDown(denormWeightSum);
-    }
-
-    /**
-     * @dev Converts a token weight from normalized form to the internal representation (summing to denormWeightSum)
-     */
-    function _denormalizeWeight(uint256 weight, uint256 denormWeightSum) private pure returns (uint256) {
-        return weight.mulUp(denormWeightSum);
+    function _onSwapGeneral(
+        SwapRequest memory, /*request*/
+        uint256[] memory, /* balances*/
+        uint256, /* indexIn */
+        uint256 /*indexOut */
+    ) internal pure override returns (uint256) {
+        _revert(Errors.UNIMPLEMENTED);
     }
 }

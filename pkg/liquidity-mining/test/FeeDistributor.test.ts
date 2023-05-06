@@ -14,6 +14,7 @@ import TypesConverter from '@balancer-labs/v2-helpers/src/models/types/TypesConv
 import * as expectEvent from '@balancer-labs/v2-helpers/src/test/expectEvent';
 import TokenList from '@balancer-labs/v2-helpers/src/models/tokens/TokenList';
 import { Comparison, expectBalanceChange } from '@balancer-labs/v2-helpers/src/test/tokenBalance';
+import { sharedBeforeEach } from '@balancer-labs/v2-common/sharedBeforeEach';
 
 const roundDownTimestamp = (timestamp: BigNumberish): BigNumber => {
   return BigNumber.from(timestamp).div(WEEK).mul(WEEK);
@@ -716,12 +717,10 @@ describe('FeeDistributor', () => {
             await advanceToTimestamp(startTime.add(100));
           });
 
-          itUpdatesCheckpointsCorrectly(() => feeDistributor.claimToken(user1.address, token.address), [
-            'global',
-            'token',
-            'user',
-            'user-token',
-          ]);
+          itUpdatesCheckpointsCorrectly(
+            () => feeDistributor.claimToken(user1.address, token.address),
+            ['global', 'token', 'user', 'user-token']
+          );
 
           // Return values from static-calling claimToken need to be converted into array format to standardise test code.
           context('when there are no tokens to distribute to user', () => {
@@ -792,12 +791,10 @@ describe('FeeDistributor', () => {
               await advanceToTimestamp(nextWeek.add(1));
             });
 
-            itUpdatesCheckpointsCorrectly(() => feeDistributor.claimToken(user1.address, token.address), [
-              'global',
-              'user',
-              'token',
-              'user-token',
-            ]);
+            itUpdatesCheckpointsCorrectly(
+              () => feeDistributor.claimToken(user1.address, token.address),
+              ['global', 'user', 'token', 'user-token']
+            );
 
             itClaimsTokensCorrectly(
               () => feeDistributor.claimToken(user1.address, token.address),
@@ -822,12 +819,10 @@ describe('FeeDistributor', () => {
             await advanceToTimestamp(startTime.add(100));
           });
 
-          itUpdatesCheckpointsCorrectly(() => feeDistributor.claimTokens(user1.address, tokens.addresses), [
-            'global',
-            'token',
-            'user',
-            'user-token',
-          ]);
+          itUpdatesCheckpointsCorrectly(
+            () => feeDistributor.claimTokens(user1.address, tokens.addresses),
+            ['global', 'token', 'user', 'user-token']
+          );
 
           context('when there are no tokens to distribute to user', () => {
             itClaimsNothing(

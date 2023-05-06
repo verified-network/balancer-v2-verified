@@ -12,9 +12,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-pragma solidity ^0.7.0;
+pragma solidity >=0.7.0 <0.9.0;
 
-import "./IAuthorizerAdaptor.sol";
+import "./IAuthorizerAdaptorEntrypoint.sol";
 import "./IGaugeController.sol";
 import "./ILiquidityGauge.sol";
 import "./ILiquidityGaugeFactory.sol";
@@ -26,18 +26,14 @@ interface IGaugeAdder is IAuthentication {
     event GaugeFactoryAdded(GaugeType indexed gaugeType, ILiquidityGaugeFactory gaugeFactory);
 
     /**
+     * @notice Returns the address of the Authorizer adaptor entrypoint contract.
+     */
+    function getAuthorizerAdaptorEntrypoint() external view returns (IAuthorizerAdaptorEntrypoint);
+
+    /**
      * @notice Returns the address of the Gauge Controller
      */
     function getGaugeController() external view returns (IGaugeController);
-
-    /**
-     * @notice Returns the gauge corresponding to a Balancer pool `pool` on Ethereum mainnet.
-     * Only returns gauges which have been added to the Gauge Controller.
-     * @dev Gauge Factories also implement a `getPoolGauge` function which maps pools to gauges which it has deployed.
-     * This function provides global information by using which gauge has been added to the Gauge Controller
-     * to represent the canonical gauge for a given pool address.
-     */
-    function getPoolGauge(IERC20 pool) external view returns (ILiquidityGauge);
 
     /**
      * @notice Returns the `index`'th factory for gauge type `gaugeType`

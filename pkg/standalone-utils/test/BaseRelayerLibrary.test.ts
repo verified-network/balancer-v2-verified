@@ -13,6 +13,7 @@ import { ANY_ADDRESS, MAX_UINT256 } from '@balancer-labs/v2-helpers/src/constant
 import Vault from '@balancer-labs/v2-helpers/src/models/vault/Vault';
 import { BigNumberish, bn, fp } from '@balancer-labs/v2-helpers/src/numbers';
 import { toChainedReference } from './helpers/chainedReferences';
+import { sharedBeforeEach } from '@balancer-labs/v2-common/sharedBeforeEach';
 
 describe('BaseRelayerLibrary', function () {
   let vault: Contract;
@@ -84,6 +85,35 @@ describe('BaseRelayerLibrary', function () {
 
           // The reference is preserved
           await expectChainedReferenceContents(reference, 5);
+        });
+      });
+
+      context('when mixing temporary and read-only references', () => {
+        const reference = toChainedReference(key, true);
+        const readOnlyReference = toChainedReference(key, false);
+
+        it('writes the same slot (temporary write)', async () => {
+          await relayerLibrary.setChainedReferenceValue(reference, 17);
+          await expectChainedReferenceContents(readOnlyReference, 17);
+        });
+
+        it('writes the same slot (read-only write)', async () => {
+          await relayerLibrary.setChainedReferenceValue(readOnlyReference, 11);
+          await expectChainedReferenceContents(reference, 11);
+        });
+
+        it('reads the same written slot', async () => {
+          await relayerLibrary.setChainedReferenceValue(reference, 37);
+
+          await expectChainedReferenceContents(readOnlyReference, 37);
+          await expectChainedReferenceContents(reference, 37);
+        });
+
+        it('reads the same cleared slot', async () => {
+          await relayerLibrary.setChainedReferenceValue(reference, 39);
+
+          await expectChainedReferenceContents(reference, 39);
+          await expectChainedReferenceContents(readOnlyReference, 0);
         });
       });
 
@@ -197,7 +227,7 @@ describe('BaseRelayerLibrary', function () {
         sharedBeforeEach('authorise relayer', async () => {
           const setApprovalRole = await actionId(vault, 'setRelayerApproval');
           const authorizer = await deployedAt('v2-vault/TimelockAuthorizer', await vault.getAuthorizer());
-          await authorizer.connect(admin).grantPermissions([setApprovalRole], relayer.address, [ANY_ADDRESS]);
+          await authorizer.connect(admin).grantPermission(setApprovalRole, relayer.address, ANY_ADDRESS);
         });
 
         describe('when modifying its own approval', () => {
@@ -320,6 +350,10 @@ describe('BaseRelayerLibrary', function () {
           value: allowance,
         });
         expect(await token.allowance(relayerLibrary.address, vault.address)).to.equal(allowance);
+      });
+
+      it('is payable', async () => {
+        await expect(relayerLibrary.approveVault(token.address, approveAmount, { value: fp(1) })).to.not.be.reverted;
       });
     }
 

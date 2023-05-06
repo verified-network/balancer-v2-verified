@@ -23,6 +23,7 @@ import {
 } from './types';
 import { getContractDeploymentTransactionHash, saveContractDeploymentTransactionHash } from './network';
 import { getTaskActionIds } from './actionId';
+import { getArtifactFromContractOutput } from './artifact';
 
 const TASKS_DIRECTORY = path.resolve(__dirname, '../tasks');
 const DEPRECATED_DIRECTORY = path.join(TASKS_DIRECTORY, 'deprecated');
@@ -121,7 +122,7 @@ export default class Task {
       logger.success(`Deployed ${name} at ${instance.address}`);
 
       if (this.mode === TaskMode.LIVE) {
-        await saveContractDeploymentTransactionHash(instance.address, instance.deployTransaction.hash, this.network);
+        saveContractDeploymentTransactionHash(instance.address, instance.deployTransaction.hash, this.network);
       }
     } else {
       logger.info(`${name} already deployed at ${output[name]}`);
@@ -168,17 +169,18 @@ export default class Task {
     const { ethers } = await import('hardhat');
 
     const deployedAddress = this.output()[name];
-    const deploymentTxHash = await getContractDeploymentTransactionHash(deployedAddress, this.network);
+    const deploymentTxHash = getContractDeploymentTransactionHash(deployedAddress, this.network);
     const deploymentTx = await ethers.provider.getTransaction(deploymentTxHash);
 
     const expectedDeploymentAddress = getContractAddress(deploymentTx);
     if (deployedAddress !== expectedDeploymentAddress) {
       throw Error(
-        `The stated deployment address of '${name}' on network '${this.network}' of task '${this.id}' does not match the address which would be deployed by the transaction ${deploymentTxHash} (${expectedDeploymentAddress})`
+        `The stated deployment address of '${name}' on network '${this.network}' of task '${this.id}' (${deployedAddress}) does not match the address which would be deployed by the transaction ${deploymentTxHash} (which instead deploys to ${expectedDeploymentAddress})`
       );
     }
 
-    if (deploymentTx.data === deploymentTxData(this.artifact(name), args, libs)) {
+    const expectedDeploymentTxData = await deploymentTxData(this.artifact(name), args, libs);
+    if (deploymentTx.data === expectedDeploymentTxData) {
       logger.success(`Verified contract '${name}' on network '${this.network}' of task '${this.id}'`);
     } else {
       throw Error(
@@ -234,10 +236,12 @@ export default class Task {
 
   artifact(contractName: string, fileName?: string): Artifact {
     const buildInfoDir = this._dirAt(this.dir(), 'build-info');
+    fileName = fileName ?? contractName;
+
     const builds: {
       [sourceName: string]: { [contractName: string]: CompilerOutputContract };
-    } = this._existsFile(path.join(buildInfoDir, `${fileName || contractName}.json`))
-      ? this.buildInfo(contractName).output.contracts
+    } = this._existsFile(path.join(buildInfoDir, `${fileName}.json`))
+      ? this.buildInfo(fileName).output.contracts
       : this.buildInfos().reduce((result, info: BuildInfo) => ({ ...result, ...info.output.contracts }), {});
 
     const sourceName = Object.keys(builds).find((sourceName) =>
@@ -245,7 +249,7 @@ export default class Task {
     );
 
     if (!sourceName) throw Error(`Could not find artifact for ${contractName}`);
-    return builds[sourceName][contractName];
+    return getArtifactFromContractOutput(sourceName, contractName, builds[sourceName][contractName]);
   }
 
   actionId(contractName: string, signature: string): string {
@@ -283,7 +287,35 @@ export default class Task {
     return this._read(taskOutputFile);
   }
 
-  save(output: RawOutput): void {
+  save(rawOutput: RawOutput): void {
+    const output = this._parseRawOutput(rawOutput);
+
+    if (this.mode === TaskMode.CHECK) {
+      // `save` is only called by `deploy` (which only happens in LIVE and TEST modes), or manually for contracts that
+      // are deployed by other contracts (e.g. Batch Relayer Entrypoints). Therefore, by testing for CHECK mode we can
+      // identify this second type of contracts, and check them by comparing the saved address to the address that the
+      // task would attempt to save.
+      this._checkManuallySavedArtifacts(output);
+    } else if (this.mode === TaskMode.LIVE || this.mode === TaskMode.TEST) {
+      this._save(output);
+    }
+  }
+
+  private _checkManuallySavedArtifacts(output: Output) {
+    for (const name of Object.keys(output)) {
+      const expectedAddress = this.output()[name];
+      const actualAddress = output[name];
+      if (actualAddress === expectedAddress) {
+        logger.success(`Verified contract '${name}' on network '${this.network}' of task '${this.id}'`);
+      } else {
+        throw Error(
+          `The stated deployment address of '${name}' on network '${this.network}' of task '${this.id}' (${actualAddress}) does not match the expected address (${expectedAddress})`
+        );
+      }
+    }
+  }
+
+  private _save(output: Output) {
     const taskOutputDir = this._dirAt(this.dir(), 'output', false);
     if (!fs.existsSync(taskOutputDir)) fs.mkdirSync(taskOutputDir);
 
@@ -291,7 +323,7 @@ export default class Task {
     const taskOutputFile = this._fileAt(taskOutputDir, outputFile, false);
     const previousOutput = this._read(taskOutputFile);
 
-    const finalOutput = { ...previousOutput, ...this._parseRawOutput(output) };
+    const finalOutput = { ...previousOutput, ...output };
     this._write(taskOutputFile, finalOutput);
   }
 
@@ -333,8 +365,7 @@ export default class Task {
   }
 
   private _write(path: string, output: Output): void {
-    const timestamp = new Date().getTime();
-    const finalOutputJSON = JSON.stringify({ ...output, timestamp }, null, 2);
+    const finalOutputJSON = JSON.stringify(output, null, 2);
     fs.writeFileSync(path, finalOutputJSON);
   }
 

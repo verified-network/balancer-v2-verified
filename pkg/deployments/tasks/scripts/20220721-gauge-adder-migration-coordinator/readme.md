@@ -2,9 +2,10 @@
 
 Deployment of the `GaugeAdderMigrationCoordinator`, responsible for migrating the active version of the `GaugeAdder` contract.
 
-The GaugeAdder is being migrated from [this implementation](../../20220325-gauge-adder/) to [this implementation](../../20220628-gauge-adder-v2/).
+The GaugeAdder was being migrated from [this implementation](../../deprecated/20220325-gauge-adder/) to [this implementation](../../deprecated/20220628-gauge-adder-v2/).
+Both have since been deprecated.
 
 ## Useful Files
 
 - [Ethereum mainnet addresses](./output/mainnet.json)
-- [`GaugeAdderMigrationCoordinator` ABI](./abi/GaugeAdderMigrationCoordinator.json)
+- [`GaugeAdderMigrationCoordinator` artifact](./artifact/GaugeAdderMigrationCoordinator.json)

@@ -18,13 +18,23 @@ pragma experimental ABIEncoderV2;
 import "@balancer-labs/v2-interfaces/contracts/vault/IVault.sol";
 
 import "@balancer-labs/v2-pool-utils/contracts/factories/BasePoolFactory.sol";
-import "@balancer-labs/v2-pool-utils/contracts/factories/FactoryWidePauseWindow.sol";
 
 import "./LiquidityBootstrappingPool.sol";
 
-contract LiquidityBootstrappingPoolFactory is BasePoolFactory, FactoryWidePauseWindow {
-    constructor(IVault vault, IProtocolFeePercentagesProvider protocolFeeProvider)
-        BasePoolFactory(vault, protocolFeeProvider, type(LiquidityBootstrappingPool).creationCode)
+contract LiquidityBootstrappingPoolFactory is BasePoolFactory {
+    constructor(
+        IVault vault,
+        IProtocolFeePercentagesProvider protocolFeeProvider,
+        uint256 initialPauseWindowDuration,
+        uint256 bufferPeriodDuration
+    )
+        BasePoolFactory(
+            vault,
+            protocolFeeProvider,
+            initialPauseWindowDuration,
+            bufferPeriodDuration,
+            type(LiquidityBootstrappingPool).creationCode
+        )
     {
         // solhint-disable-previous-line no-empty-blocks
     }
@@ -39,7 +49,8 @@ contract LiquidityBootstrappingPoolFactory is BasePoolFactory, FactoryWidePauseW
         uint256[] memory weights,
         uint256 swapFeePercentage,
         address owner,
-        bool swapEnabledOnStart
+        bool swapEnabledOnStart,
+        bytes32 salt
     ) external returns (address) {
         (uint256 pauseWindowDuration, uint256 bufferPeriodDuration) = getPauseConfiguration();
 
@@ -56,7 +67,8 @@ contract LiquidityBootstrappingPoolFactory is BasePoolFactory, FactoryWidePauseW
                     bufferPeriodDuration,
                     owner,
                     swapEnabledOnStart
-                )
+                ),
+                salt
             );
     }
 }

@@ -78,7 +78,7 @@ chai.use(function (chai, utils) {
   Assertion.addMethod('almostEqual', function (expectedValue: NAry<BigNumberish>, error?: BigNumberish) {
     if (Array.isArray(expectedValue)) {
       const actuals: BigNumberish[] = this._obj;
-      actuals.forEach(async (actual, i) => expectEqualWithError(actual, expectedValue[i], error));
+      actuals.forEach((actual, i) => expectEqualWithError(actual, expectedValue[i], error));
     } else {
       expectEqualWithError(this._obj, expectedValue, error);
     }
@@ -87,7 +87,7 @@ chai.use(function (chai, utils) {
   Assertion.addMethod('almostEqualFp', function (expectedValue: NAry<BigNumberish>, error?: BigNumberish) {
     if (Array.isArray(expectedValue)) {
       const actuals: BigNumberish[] = this._obj;
-      actuals.forEach(async (actual, i) => expectEqualWithError(actual, fp(expectedValue[i]), error));
+      actuals.forEach((actual, i) => expectEqualWithError(actual, fp(expectedValue[i]), error));
     } else {
       expectEqualWithError(this._obj, fp(expectedValue), error);
     }
@@ -120,7 +120,8 @@ chai.use(function (chai, utils) {
           if (!error.message.includes('but other exception was thrown')) throw error;
 
           // Decode the actual revert reason and look for it in the balancer errors list
-          const regExp = /(Expected transaction to be reverted with )(.*)(, but other exception was thrown: .*Error: VM Exception while processing transaction: reverted with reason string ')(.*)(')/;
+          const regExp =
+            /(Expected transaction to be reverted with )(.*)(, but other exception was thrown: .*VM Exception while processing transaction: reverted with reason string (?:"|'))(.*)(?:" |')(.*)/;
           const matches = error.message.match(regExp);
           if (!matches || matches.length !== 6) throw error;
 

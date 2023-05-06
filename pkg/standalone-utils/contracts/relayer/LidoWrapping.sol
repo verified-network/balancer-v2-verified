@@ -17,7 +17,6 @@ pragma experimental ABIEncoderV2;
 
 import "@balancer-labs/v2-interfaces/contracts/standalone-utils/IstETH.sol";
 import "@balancer-labs/v2-interfaces/contracts/standalone-utils/IwstETH.sol";
-import "@balancer-labs/v2-interfaces/contracts/vault/IVault.sol";
 
 import "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/Address.sol";
 
@@ -50,27 +49,11 @@ abstract contract LidoWrapping is IBaseRelayerLibrary {
         uint256 amount,
         uint256 outputReference
     ) external payable {
-        if (_isChainedReference(amount)) {
-            amount = _getChainedReferenceValue(amount);
-        }
+        amount = _resolveAmountPullTokenAndApproveSpender(_stETH, address(_wstETH), amount, sender);
 
-        // The wrap caller is the implicit token sender, so if the goal is for the tokens
-        // to be sourced from outside the relayer, we must first pull them here.
-        if (sender != address(this)) {
-            require(sender == msg.sender, "Incorrect sender");
-            _pullToken(sender, _stETH, amount);
-        }
-
-        _stETH.approve(address(_wstETH), amount);
         uint256 result = IwstETH(_wstETH).wrap(amount);
 
-        if (recipient != address(this)) {
-            _wstETH.transfer(recipient, result);
-        }
-
-        if (_isChainedReference(outputReference)) {
-            _setChainedReferenceValue(outputReference, result);
-        }
+        _transferAndSetChainedReference(_wstETH, recipient, result, outputReference);
     }
 
     function unwrapWstETH(
@@ -79,27 +62,12 @@ abstract contract LidoWrapping is IBaseRelayerLibrary {
         uint256 amount,
         uint256 outputReference
     ) external payable {
-        if (_isChainedReference(amount)) {
-            amount = _getChainedReferenceValue(amount);
-        }
-
-        // The unwrap caller is the implicit token sender, so if the goal is for the tokens
-        // to be sourced from outside the relayer, we must first pull them here.
-        if (sender != address(this)) {
-            require(sender == msg.sender, "Incorrect sender");
-            _pullToken(sender, _wstETH, amount);
-        }
+        amount = _resolveAmountAndPullToken(_wstETH, amount, sender);
 
         // No approval is needed here, as wstETH is burned directly from the relayer's account
         uint256 result = _wstETH.unwrap(amount);
 
-        if (recipient != address(this)) {
-            _stETH.transfer(recipient, result);
-        }
-
-        if (_isChainedReference(outputReference)) {
-            _setChainedReferenceValue(outputReference, result);
-        }
+        _transferAndSetChainedReference(_stETH, recipient, result, outputReference);
     }
 
     function stakeETH(
@@ -107,19 +75,11 @@ abstract contract LidoWrapping is IBaseRelayerLibrary {
         uint256 amount,
         uint256 outputReference
     ) external payable {
-        if (_isChainedReference(amount)) {
-            amount = _getChainedReferenceValue(amount);
-        }
+        amount = _resolveAmount(amount);
 
         uint256 result = _stETH.submit{ value: amount }(address(this));
 
-        if (recipient != address(this)) {
-            _stETH.transfer(recipient, result);
-        }
-
-        if (_isChainedReference(outputReference)) {
-            _setChainedReferenceValue(outputReference, result);
-        }
+        _transferAndSetChainedReference(_stETH, recipient, result, outputReference);
     }
 
     function stakeETHAndWrap(
@@ -127,9 +87,7 @@ abstract contract LidoWrapping is IBaseRelayerLibrary {
         uint256 amount,
         uint256 outputReference
     ) external payable {
-        if (_isChainedReference(amount)) {
-            amount = _getChainedReferenceValue(amount);
-        }
+        amount = _resolveAmount(amount);
 
         // We must query this separately, since the wstETH contract doesn't return how much wstETH is minted.
         uint256 result = _wstETH.getWstETHByStETH(amount);
@@ -141,12 +99,6 @@ abstract contract LidoWrapping is IBaseRelayerLibrary {
         // this function would have already reverted during the call to `getWstETHByStETH`, preventing loss of funds.
         payable(address(_wstETH)).sendValue(amount);
 
-        if (recipient != address(this)) {
-            _wstETH.transfer(recipient, result);
-        }
-
-        if (_isChainedReference(outputReference)) {
-            _setChainedReferenceValue(outputReference, result);
-        }
+        _transferAndSetChainedReference(_wstETH, recipient, result, outputReference);
     }
 }

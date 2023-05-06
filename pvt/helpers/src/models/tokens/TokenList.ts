@@ -82,8 +82,8 @@ export default class TokenList {
     return typeof token === 'number' ? token : this.tokens.indexOf(token);
   }
 
-  indicesOf(token: number | Token, anotherToken: number | Token): number[] {
-    return [this.indexOf(token), this.indexOf(anotherToken)];
+  indicesOf(tokens: (number | Token)[]): number[] {
+    return tokens.map((token) => this.indexOf(token));
   }
 
   subset(length: number, offset = 0): TokenList {
@@ -159,5 +159,9 @@ export default class TokenList {
     return new TokenList(
       this.tokens.sort((tokenA, tokenB) => (tokenA.address.toLowerCase() > tokenB.address.toLowerCase() ? 1 : -1))
     );
+  }
+
+  scaledBalances(rawBalance: () => number): BigNumber[] {
+    return this.tokens.map((t) => BigNumber.from((rawBalance() * 10 ** t.decimals).toString()));
   }
 }

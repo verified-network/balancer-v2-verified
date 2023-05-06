@@ -19,6 +19,15 @@ if (process.env.CI) {
       "optimism": {
         "url": "${process.env.OPTIMISM_RPC_ENDPOINT}"
       },
+      "gnosis": {
+        "url": "${process.env.GNOSIS_RPC_ENDPOINT}"
+      },
+      "bsc": {
+        "url": "${process.env.BINANCE_RPC_ENDPOINT}"
+      },
+      "avalanche": {
+        "url": "${process.env.AVALANCHE_RPC_ENDPOINT}"
+      },
       "goerli": {
         "url": "${process.env.GOERLI_RPC_ENDPOINT}"
       }

@@ -7,6 +7,7 @@ import { Contract } from 'ethers';
 import { expect } from 'chai';
 import * as expectEvent from '@balancer-labs/v2-helpers/src/test/expectEvent';
 import Token from '@balancer-labs/v2-helpers/src/models/tokens/Token';
+import { sharedBeforeEach } from '@balancer-labs/v2-common/sharedBeforeEach';
 
 describe('BALTokenHolderFactory', function () {
   let tokens: TokenList;
@@ -20,7 +21,7 @@ describe('BALTokenHolderFactory', function () {
 
     // Deploy BAL token
     tokens = await TokenList.create([{ symbol: 'BAL' }]);
-    BAL = await tokens.findBySymbol('BAL');
+    BAL = tokens.findBySymbol('BAL');
 
     factory = await deploy('BALTokenHolderFactory', { args: [BAL.address, vault.address] });
   });

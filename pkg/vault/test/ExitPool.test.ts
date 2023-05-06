@@ -6,7 +6,6 @@ import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/dist/src/signer-wit
 
 import Token from '@balancer-labs/v2-helpers/src/models/tokens/Token';
 import TokenList from '@balancer-labs/v2-helpers/src/models/tokens/TokenList';
-import TokensDeployer from '@balancer-labs/v2-helpers/src/models/tokens/TokensDeployer';
 import * as expectEvent from '@balancer-labs/v2-helpers/src/test/expectEvent';
 import { encodeExit } from '@balancer-labs/v2-helpers/src/models/pools/mockPool';
 import { expectBalanceChange } from '@balancer-labs/v2-helpers/src/test/tokenBalance';
@@ -17,6 +16,8 @@ import { lastBlockNumber, MONTH } from '@balancer-labs/v2-helpers/src/time';
 import { ANY_ADDRESS, MAX_GAS_LIMIT, MAX_UINT256, ZERO_ADDRESS } from '@balancer-labs/v2-helpers/src/constants';
 import { arrayAdd, arraySub, BigNumberish, bn, fp } from '@balancer-labs/v2-helpers/src/numbers';
 import { PoolSpecialization, RelayerAuthorization } from '@balancer-labs/balancer-js';
+import Vault from '@balancer-labs/v2-helpers/src/models/vault/Vault';
+import { sharedBeforeEach } from '@balancer-labs/v2-common/sharedBeforeEach';
 
 describe('Exit Pool', () => {
   let admin: SignerWithAddress, creator: SignerWithAddress, lp: SignerWithAddress;
@@ -31,15 +32,16 @@ describe('Exit Pool', () => {
   });
 
   sharedBeforeEach('deploy vault & tokens', async () => {
-    const WETH = await TokensDeployer.deployToken({ symbol: 'WETH' });
-
-    authorizer = await deploy('TimelockAuthorizer', { args: [admin.address, ZERO_ADDRESS, MONTH] });
-    vault = await deploy('Vault', { args: [authorizer.address, WETH.address, MONTH, MONTH] });
+    ({ instance: vault, authorizer } = await Vault.create({
+      admin,
+      pauseWindowDuration: MONTH,
+      bufferPeriodDuration: MONTH,
+    }));
     vault = vault.connect(lp);
     feesCollector = await deployedAt('ProtocolFeesCollector', await vault.getProtocolFeesCollector());
 
     const action = await actionId(feesCollector, 'setSwapFeePercentage');
-    await authorizer.connect(admin).grantPermissions([action], admin.address, [ANY_ADDRESS]);
+    await authorizer.connect(admin).grantPermission(action, admin.address, ANY_ADDRESS);
     await feesCollector.connect(admin).setSwapFeePercentage(SWAP_FEE_PERCENTAGE);
 
     allTokens = await TokenList.create(['DAI', 'MKR', 'SNX', 'BAT'], { sorted: true });
@@ -258,7 +260,7 @@ describe('Exit Pool', () => {
             context('when the relayer is whitelisted by the authorizer', () => {
               sharedBeforeEach('grant permission to relayer', async () => {
                 const action = await actionId(vault, 'exitPool');
-                await authorizer.connect(admin).grantPermissions([action], relayer.address, [ANY_ADDRESS]);
+                await authorizer.connect(admin).grantPermission(action, relayer.address, ANY_ADDRESS);
               });
 
               context('when the relayer is allowed by the user', () => {
@@ -295,7 +297,9 @@ describe('Exit Pool', () => {
             context('when the relayer is not whitelisted by the authorizer', () => {
               sharedBeforeEach('revoke permission from relayer', async () => {
                 const action = await actionId(vault, 'exitPool');
-                await authorizer.connect(admin).revokePermissions([action], relayer.address, [ANY_ADDRESS]);
+                if (await authorizer.hasPermission(action, relayer.address, ANY_ADDRESS)) {
+                  await authorizer.connect(admin).revokePermission(action, relayer.address, ANY_ADDRESS);
+                }
               });
 
               context('when the relayer is allowed by the user', () => {
@@ -400,7 +404,7 @@ describe('Exit Pool', () => {
         context('when paused', () => {
           sharedBeforeEach('pause', async () => {
             const action = await actionId(vault, 'setPaused');
-            await authorizer.connect(admin).grantPermissions([action], admin.address, [ANY_ADDRESS]);
+            await authorizer.connect(admin).grantPermission(action, admin.address, ANY_ADDRESS);
             await vault.connect(admin).setPaused(true);
           });
 

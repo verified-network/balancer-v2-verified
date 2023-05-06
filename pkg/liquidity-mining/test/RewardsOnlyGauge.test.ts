@@ -15,10 +15,11 @@ import Vault from '@balancer-labs/v2-helpers/src/models/vault/Vault';
 import { actionId } from '@balancer-labs/v2-helpers/src/models/misc/actions';
 import { parseFixed } from '@ethersproject/bignumber';
 import TokenList from '@balancer-labs/v2-helpers/src/models/tokens/TokenList';
+import { sharedBeforeEach } from '@balancer-labs/v2-common/sharedBeforeEach';
 
 describe('RewardsOnlyGauge', () => {
   let vault: Vault;
-  let adaptor: Contract;
+  let adaptorEntrypoint: Contract;
 
   let token: Token;
   let balToken: Token;
@@ -38,9 +39,8 @@ describe('RewardsOnlyGauge', () => {
 
   sharedBeforeEach('deploy token', async () => {
     vault = await Vault.create({ admin });
-    if (!vault.authorizer) throw Error('Vault has no Authorizer');
-
-    adaptor = await deploy('AuthorizerAdaptor', { args: [vault.address] });
+    const adaptor = vault.authorizerAdaptor;
+    adaptorEntrypoint = vault.authorizerAdaptorEntrypoint;
 
     token = await Token.create({ symbol: 'BPT' });
     balToken = await Token.create({ symbol: 'BAL' });
@@ -169,14 +169,14 @@ describe('RewardsOnlyGauge', () => {
     });
 
     sharedBeforeEach('set up distributor on streamer', async () => {
-      const setDistributorActionId = await actionId(adaptor, 'set_reward_distributor', streamer.interface);
-      await vault.grantPermissionsGlobally([setDistributorActionId], admin);
+      const setDistributorActionId = await actionId(adaptorEntrypoint, 'set_reward_distributor', streamer.interface);
+      await vault.grantPermissionGlobally(setDistributorActionId, admin);
 
       const calldata = streamer.interface.encodeFunctionData('set_reward_distributor', [
         balToken.address,
         distributor.address,
       ]);
-      await adaptor.connect(admin).performAction(streamer.address, calldata);
+      await adaptorEntrypoint.connect(admin).performAction(streamer.address, calldata);
     });
 
     sharedBeforeEach('send tokens to streamer', async () => {
