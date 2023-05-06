@@ -298,6 +298,7 @@ abstract contract BasePool is
         _beforeSwapJoinExit();
 
         uint256[] memory scalingFactors = _scalingFactors();
+
         if (totalSupply() == 0) {
             (uint256 bptAmountOut, uint256[] memory amountsIn) = _onInitializePool(
                 poolId,
@@ -313,10 +314,10 @@ abstract contract BasePool is
             _require(bptAmountOut >= _getMinimumBpt(), Errors.MINIMUM_BPT);
             _mintPoolTokens(address(0), _getMinimumBpt());
             _mintPoolTokens(recipient, bptAmountOut - _getMinimumBpt());
-            
+
             // amountsIn are amounts entering the Pool, so we round up.
             _downscaleUpArray(amountsIn, scalingFactors);
-            
+
             return (amountsIn, new uint256[](balances.length));
         } else {
             _upscaleArray(balances, scalingFactors);
@@ -334,6 +335,7 @@ abstract contract BasePool is
             // Note we no longer use `balances` after calling `_onJoinPool`, which may mutate it.
 
             _mintPoolTokens(recipient, bptAmountOut);
+
             // amountsIn are amounts entering the Pool, so we round up.
             _downscaleUpArray(amountsIn, scalingFactors);
 
@@ -357,6 +359,7 @@ abstract contract BasePool is
     ) external override onlyVault(poolId) returns (uint256[] memory, uint256[] memory) {
         uint256[] memory amountsOut;
         uint256 bptAmountIn;
+
         // When a user calls `exitPool`, this is the first point of entry from the Vault.
         // We first check whether this is a Recovery Mode exit - if so, we proceed using this special lightweight exit
         // mechanism which avoids computing any complex values, interacting with external contracts, etc., and generally
@@ -385,11 +388,15 @@ abstract contract BasePool is
                 scalingFactors,
                 userData
             );
+
             // amountsOut are amounts exiting the Pool, so we round down.
             _downscaleDownArray(amountsOut, scalingFactors);
         }
+
         // Note we no longer use `balances` after calling `_onExitPool`, which may mutate it.
+
         _burnPoolTokens(sender, bptAmountIn);
+
         // This Pool ignores the `dueProtocolFees` return value, so we simply return a zeroed-out array.
         return (amountsOut, new uint256[](balances.length));
     }

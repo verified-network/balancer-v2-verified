@@ -1,18 +1,3 @@
-<<<<<<< HEAD
-# 2022-04-13 - Arbitrum Root Gauge Factory
-
-> ⚠️ **DEPRECATED: do not use** ⚠️
->
-> This relayer has been deprecated in favor of an [updated version](../../20220823-arbitrum-root-gauge-factory-v2) with weight-capped gauges.
-
-Deployment of the `ArbitrumRootGaugeFactory`, for stakeless gauges that bridge funds to their Arbitrum counterparts.
-
-## Useful Files
-
-- [Ethereum mainnet addresses](./output/mainnet.json)
-- [`ArbitrumRootGauge` ABI](./abi/ArbitrumRootGauge.json)
-- [`ArbitrumRootGaugeFactory` ABI](./abi/ArbitrumRootGaugeFactory.json)
-=======
 # 2022-04-13 - Arbitrum Root Gauge Factory
 
 > ⚠️ **DEPRECATED: do not use** ⚠️
@@ -25,4 +10,3 @@ Deployment of the `ArbitrumRootGaugeFactory`, for stakeless gauges that bridge f
 
 - [Ethereum mainnet addresses](./output/mainnet.json)
 - [`ArbitrumRootGaugeFactory` artifact](./artifact/ArbitrumRootGaugeFactory.json)
->>>>>>> origin/master

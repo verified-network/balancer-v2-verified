@@ -1,10 +1,3 @@
-<<<<<<< HEAD:pkg/deployments/tasks/20220425-unbutton-aave-linear-pool/output/polygon.json
-{
-  "UnbuttonAaveLinearPoolFactory": "0x6bAF5Fa330F2d7C59f2bB57cF4b2C927B7f160d2",
-  "timestamp": 1650912445548
-}
-=======
 {
   "UnbuttonAaveLinearPoolFactory": "0x6bAF5Fa330F2d7C59f2bB57cF4b2C927B7f160d2"
 }
->>>>>>> origin/master:pkg/deployments/tasks/deprecated/20220425-unbutton-aave-linear-pool/output/polygon.json
