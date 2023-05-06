@@ -290,7 +290,8 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
     }
 
     function removeTrade(address _party, uint256 _timestamp) public onlyOwner {
-        for(uint256 i=0; i<_trades[_party].length; i++){
+        uint256 length = _trades[_party].length;
+        for(uint256 i=0; i<length; i++){
             if(_trades[_party][i]==_timestamp)
                 delete _trades[_party][i];
         }
@@ -300,7 +301,8 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
     function getOrderRef() external override view returns (bytes32[] memory) {
         bytes32[] memory refs = new bytes32[](_sellOrderbook.length);
         uint256 i;
-        for(uint256 j=0; j<_sellOrderbook.length; j++){
+        uint256 length = _sellOrderbook.length; 
+        for(uint256 j=0; j<length; j++){
             if(_orders[_sellOrderbook[j].ref].party==msg.sender){
                 refs[i] = _sellOrderbook[j].ref;
                 i++;
