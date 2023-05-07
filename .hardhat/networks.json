@@ -10,6 +10,21 @@
         "accounts": ["0x19836182a3786CD592523cAB7445325be26c3334"],
         "url": "wss://polygon-mainnet.infura.io/v3/2bdfb8680f2443d09420292049546e60"
       },
+      "bsc": {
+        "gasMultiplier": 2,
+        "accounts": ["0x19836182a3786CD592523cAB7445325be26c3334"],
+        "url": "https://bsc-dataseed1.binance.org"
+      },
+      "gnosis": {
+        "gasMultiplier": 2,
+        "accounts": ["0x19836182a3786CD592523cAB7445325be26c3334"],
+        "url": "https://rpc.gnosischain.com"
+      },
+      "avalanche": {
+        "gasMultiplier": 2,
+        "accounts": ["0x19836182a3786CD592523cAB7445325be26c3334"],
+        "url": "wss://avalanche-mainnet.infura.io/v3/b85f3220f1eb44f09b1b0e812f6e78b7"
+      },
       "mainnet": {
         "accounts": ["0x12..56","0xab..cd"],
         "url": "wss://mainnet.infura.io/v3/8151436a27dd4cdab264fa3ebf60a090"
