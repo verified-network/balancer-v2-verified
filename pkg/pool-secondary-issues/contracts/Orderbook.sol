@@ -160,9 +160,9 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                     else if(price==0 && _price!=0){
                         price = _price;
                     } 
-                    if (price > _price) break;
+                    // if (price > _price) break;
                     _marketOrders[index] = removeSellOrder();
-                    price = price == 0 ? _price : _marketOrders[index].price;
+                    // price = price == 0 ? _price : _marketOrders[index].price;
                     volume = Math.add(volume, price.mulDown(_orders[_marketOrders[index].ref].qty));
                     //if it is a buy order, ie, cash in
                     if(volume >= _orders[_ref].qty)
