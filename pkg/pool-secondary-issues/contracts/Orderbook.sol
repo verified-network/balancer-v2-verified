@@ -20,7 +20,10 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
     using FixedPoint for uint256;
 
     //counter for block timestamp nonce for creating unique order references
-    uint256 private _previousTs = 0;
+    uint256 private _previousTs;
+
+    //last traded price
+    uint256 private _prevailingPrice;
 
     //mapping order reference to order
     mapping(bytes32 => IOrder.order) private _orders;
@@ -110,7 +113,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
 
     //check if a buy order in the order book can execute over the prevailing (low) price passed to the function
     //check if a sell order in the order book can execute under the prevailing (high) price passed to the function
-    function checkOrders(bytes32 _ref, uint256 _price) private returns (uint256, Node[] memory){
+    function checkOrders(bytes32 _ref, uint256 _price) private returns (uint256, Node[] memory, uint256){
         uint256 volume;
         Node[] memory _marketOrders;
         _marketOrders = _orders[_ref].tokenIn == _security ? new Node[](_buyOrderbook.length) : new Node[](_sellOrderbook.length);
@@ -118,19 +121,26 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         if(_orders[_ref].tokenIn==_security){
             while (_buyOrderbook.length != 0) {
                 uint256 price = getBestBuyPrice();
-                if(Math.add(price, _price) == 0) break;
-                if (price == 0) price = _price;
-                // if (price < _price && _price != 0) break;
+                if(price==0 && _price==0){
+                    if(_prevailingPrice!=0){ 
+                        price = _prevailingPrice;
+                        _price = _prevailingPrice;
+                    }
+                    else
+                        break;
+                }
+                else if(price==0 && _price!=0){
+                    price = _price;
+                } 
                 if (price < _price) break;
                 // since this is a sell order, counter offers must offer a better price
                 _marketOrders[index] = removeBuyOrder();
-                // uint256 orderPrice = _marketOrders[index].price > 0 ? _marketOrders[index].price : _price;// > 0 ? _price : price;
                 uint256 orderPrice = _marketOrders[index].price > 0 ? _marketOrders[index].price : price;
                 volume = Math.add(volume, _orders[_marketOrders[index].ref].qty.divDown(orderPrice));
                 //if it is a sell order, ie, security in
                 if (volume >= _orders[_ref].qty) {
                     //if available market depth exceeds qty to trade, exit and avoid unnecessary lookup through orderbook  
-                    return (volume, _marketOrders);
+                    return (volume, _marketOrders, _price);
                 }
                 index++;
             }
@@ -139,17 +149,29 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
             while(_sellOrderbook.length!=0 && (getBestSellPrice() <= _price || _price==0)){
                     //since this is a buy order, counter offers to sell must be for lesser price 
                     uint256 price = getBestSellPrice();
+                    if(price==0 && _price==0){
+                        if(_prevailingPrice!=0){ 
+                            price = _prevailingPrice;
+                            _price = _prevailingPrice;
+                        }
+                        else
+                            break;
+                    }
+                    else if(price==0 && _price!=0){
+                        price = _price;
+                    } 
+                    if (price > _price) break;
                     _marketOrders[index] = removeSellOrder();
                     price = price == 0 ? _price : _marketOrders[index].price;
                     volume = Math.add(volume, price.mulDown(_orders[_marketOrders[index].ref].qty));
                     //if it is a buy order, ie, cash in
                     if(volume >= _orders[_ref].qty)
                         //if available market depth exceeds qty to trade, exit and avoid unnecessary lookup through orderbook  
-                        return (volume, _marketOrders);
+                        return (volume, _marketOrders, _price);
                     index++;               
             } 
         }   
-        return (volume, _marketOrders); 
+        return (volume, _marketOrders, _price); 
     }
         
 
@@ -165,7 +187,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         uint256 matches;
         Node[] memory _marketOrders;
         //check if market depth available is non zero
-        (matches, _marketOrders) = checkOrders(ref, price);
+        (matches, _marketOrders, price) = checkOrders(ref, price);
         if(matches==0){
             return ref;
         }
@@ -178,7 +200,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                 _orders[_marketOrders[i].ref].party != _orders[ref].party && //orders posted by a party can not be matched by a counter offer by the same party
                 _orders[_marketOrders[i].ref].status != IOrder.OrderStatus.Filled //orders that are filled can not be matched /traded again
             ) {
-                if (_marketOrders[i].price == 0 && price == 0) continue; // Case: If Both CP & Party place Order@CMP
+                //if (_marketOrders[i].price == 0 && price == 0) continue; // Case: If Both CP & Party place Order@CMP
                 if (_orders[_marketOrders[i].ref].tokenIn == _currency && _orders[ref].tokenIn == _security) {
                     if (_marketOrders[i].price >= price || price == 0 || _marketOrders[i].price ==0) {
                         bestPrice = _marketOrders[i].price == 0 ? price : _marketOrders[i].price;
@@ -273,6 +295,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         _tradeRefs[_orders[_cref].party][oIndex] = tradeToReport;        
         _trades[_orders[_ref].party].push(tradeToReport.dt);
         _trades[_orders[_cref].party].push(tradeToReport.dt);
+        _prevailingPrice = currencyTraded.divDown(securityTraded);
     }
 
     function getOrder(bytes32 _ref) external override view returns(IOrder.order memory){
