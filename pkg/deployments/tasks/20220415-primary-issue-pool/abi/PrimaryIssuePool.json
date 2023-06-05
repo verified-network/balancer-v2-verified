@@ -151,6 +151,12 @@
           "internalType": "string",
           "name": "offeringDocs",
           "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "issueManager",
+          "type": "address"
         }
       ],
       "name": "OpenIssue",

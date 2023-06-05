@@ -76,7 +76,7 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
             IVault.PoolSpecialization.GENERAL,
             factoryPoolParams.name,
             factoryPoolParams.symbol,
-            _sortTokens(IERC20(factoryPoolParams.security), IERC20(factoryPoolParams.currency), this),
+            _sortTokens(IERC20(factoryPoolParams.security), IERC20(factoryPoolParams.currency), IERC20(this)),
             new address[](_TOTAL_TOKENS),
             factoryPoolParams.swapFeePercentage,
             pauseWindowDuration,
@@ -317,11 +317,10 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
         address balancerManager = _balancerManager;
         _require(sender == balancerManager, Errors.INVALID_INITIALIZATION);
         _require(recipient == payable(balancerManager), Errors.INVALID_INITIALIZATION);
-
+        
         uint256 bptAmountOut = _INITIAL_BPT_SUPPLY;
         uint256[] memory amountsIn = userData.joinKind();
         amountsIn[_currencyIndex] = _upscale(amountsIn[_currencyIndex], _scalingFactorCurrency);
-
         return (bptAmountOut, amountsIn);
     }
     
