@@ -76,7 +76,7 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
             IVault.PoolSpecialization.GENERAL,
             factoryPoolParams.name,
             factoryPoolParams.symbol,
-            _sortTokens(IERC20(factoryPoolParams.security), IERC20(factoryPoolParams.currency), IERC20(this)),
+            _sortTokens(IERC20(factoryPoolParams.security), IERC20(factoryPoolParams.currency), this),
             new address[](_TOTAL_TOKENS),
             factoryPoolParams.swapFeePercentage,
             pauseWindowDuration,

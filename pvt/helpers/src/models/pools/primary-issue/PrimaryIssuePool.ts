@@ -304,7 +304,7 @@ export default class PrimaryPool extends BasePool{
   async join(params: JoinExitPrimaryPool): Promise<JoinResult> {
     const currentBalances = params.currentBalances || (await this.getBalances());
     const to = params.recipient ? TypesConverter.toAddress(params.recipient) : params.from?.address ?? ZERO_ADDRESS;
-
+    
     const tx = this.vault.joinPool({
       poolAddress: this.address,
       poolId: this.poolId,
