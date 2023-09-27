@@ -5,6 +5,7 @@ import { getForkedNetwork } from './test';
 
 const WHALES: { [key: string]: string } = {
   mainnet: '0x47ac0fb4f2d84898e4d9e7b4dab3c24507a6d503',
+  goerli: '0x19836182a3786CD592523cAB7445325be26c3334'
 };
 
 export async function getSigners(): Promise<SignerWithAddress[]> {
