@@ -6,16 +6,18 @@ import * as expectEvent from '@balancer-labs/v2-helpers/src/test/expectEvent';
 import { bn, fp } from '@balancer-labs/v2-helpers/src/numbers';
 import { expectEqualWithError } from '@balancer-labs/v2-helpers/src/test/relativeError';
 import { describeForkTest } from '../../../src/forkTests';
+// import PrimaryPool from '@balancer-labs/v2-helpers/src/models/pools/primary-issue/PrimaryIssuePool';
 import Task, { TaskMode } from '../../../src/task';
 import { getForkedNetwork } from '../../../src/test';
 import { getSigner, impersonate, impersonateWhale } from '../../../src/signers';
-import { MAX_UINT256 } from '@balancer-labs/v2-helpers/src/constants';
+import { MaxUint256 } from '@ethersproject/constants';
+// import { MaxUint256 } from '@balancer-labs/v2-helpers/src/constants';
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/dist/src/signer-with-address';
 
-describeForkTest('PrimaryPoolFactory', 'goerli', 8586768, function () {
+describeForkTest('PrimaryPoolFactory', 'mainnet', 8586768, function () {
     let owner: SignerWithAddress, whale: SignerWithAddress;
-    let factory: Contract, vault: Contract, authorizer: Contract, usdc: Contract, vcusd: Contract, usdt: Contract;
-
+    let factory: Contract, vault: Contract, authorizer: Contract, usdc: Contract, vcusd: Contract, usdt: Contract, pool: Contract;
+    // let pool: PrimaryPool;
     let task: Task;
 
     const VCUSD = '0xa6aa25115f23F3ADc4471133bbDC401b613DbF65';
@@ -48,7 +50,7 @@ describeForkTest('PrimaryPoolFactory', 'goerli', 8586768, function () {
     before('setup contracts', async () => {
         vault = await new Task('20210418-vault', TaskMode.READ_ONLY, getForkedNetwork(hre)).deployedInstance('Vault');
         authorizer = await new Task('20210418-authorizer', TaskMode.READ_ONLY, getForkedNetwork(hre)).deployedInstance(
-        'Authorizer'
+            'Authorizer'
         );
 
         vcusd = await task.instanceAt('IERC20', VCUSD);
@@ -60,9 +62,9 @@ describeForkTest('PrimaryPoolFactory', 'goerli', 8586768, function () {
         let pool: Contract;
         let poolId: string;
 
-        it('deploy a primary issue pool', async () => {   
-            const tx = await factory.create({name: 'Verified Pool Token', symbol: 'VPT', security: usdc.address, currency: vcusd.address, minimumPrice: minimumPrice, minimumOrderSize: minimumOrderSize, maxAmountsIn: maxSecurityOffered, swapFeePercentage: swapFeePercentage, cutOffTime: issueCutoffTime, offeringDocs: offeringDocs});
-            const event = expectEvent.inReceipt(await tx.wait(), 'PoolCreated');
+        it('deploy a primary issue pool', async () => {
+            const tx = await factory.create({ name: 'Verified Pool Token', symbol: 'VPT', security: usdc.address, currency: vcusd.address, minimumPrice: minimumPrice, minimumOrderSize: minimumOrderSize, maxAmountsIn: maxSecurityOffered, swapFeePercentage: swapFeePercentage, cutOffTime: issueCutoffTime, offeringDocs: offeringDocs });
+            const event = await expectEvent.inReceipt(await tx.wait(), 'PoolCreated');
 
             pool = await task.instanceAt('PrimaryIssuePool', event.args.pool);
             expect(await factory.isPoolFromFactory(pool.address)).to.be.true;
@@ -73,8 +75,8 @@ describeForkTest('PrimaryPoolFactory', 'goerli', 8586768, function () {
         });
 
         it('initialize the pool', async () => {
-            await vcusd.connect(whale).approve(vault.address, MAX_UINT256);
-            await usdc.connect(whale).approve(vault.address, MAX_UINT256);
+            await vcusd.connect(whale).approve(vault.address, MaxUint256);
+            await usdc.connect(whale).approve(vault.address, MaxUint256);
 
             const userData = WeightedPoolEncoder.joinInit(initialBalances);
             await vault.connect(whale).joinPool(poolId, whale.address, owner.address, {
@@ -86,7 +88,6 @@ describeForkTest('PrimaryPoolFactory', 'goerli', 8586768, function () {
 
             const { balances } = await vault.getPoolTokens(poolId);
             expect(balances).to.deep.equal(initialBalances);
-
         });
 
         it('swap in the pool', async () => {
@@ -97,10 +98,10 @@ describeForkTest('PrimaryPoolFactory', 'goerli', 8586768, function () {
             await vault
                 .connect(owner)
                 .swap(
-                { kind: SwapKind.GivenIn, poolId, assetIn: VCUSD, assetOut: USDC, amount, userData: '0x' },
-                { sender: owner.address, recipient: owner.address, fromInternalBalance: false, toInternalBalance: false },
-                0,
-                MAX_UINT256
+                    { kind: SwapKind.GivenIn, poolId, assetIn: VCUSD, assetOut: USDC, amount, userData: '0x' },
+                    { sender: owner.address, recipient: owner.address, fromInternalBalance: false, toInternalBalance: false },
+                    0,
+                    MaxUint256
                 );
 
             // Assert pool swap
@@ -109,4 +110,59 @@ describeForkTest('PrimaryPoolFactory', 'goerli', 8586768, function () {
             expectEqualWithError(await usdc.balanceOf(owner.address), expectedUSDC, 0.1);
         });
     });
+
+    // swaping securityIn token
+    describe('swapSecurityIn', function () {
+        it('swap security tokens for currency tokens', async function () {
+            await TokenSwap(pool, owner, 'Security', 'Currency');
+        });
+    });
+
+    // swaping securityOut token
+    describe('_swapSecurityOut', function () {
+        it('should swap security tokens out for currency tokens', async function () {
+            await TokenSwap(pool, owner, 'Currency', 'Security');
+        });
+    });
+
+    // swapping swapCurrencyIn token
+    describe('_swapCurrencyIn', function () {
+        it('should swap currency tokens in for security tokens', async function () {
+            await TokenSwap(pool, owner, 'Currency', 'Security');
+        });
+    });
+
+    // swapping swapCurrencyOut token
+    describe('_swapCurrencyOut', function () {
+        it('should swap currency tokens out for security tokens', async function () {
+            await TokenSwap(pool, owner, 'Security', 'Currency');
+        });
+    });
+
+    const TokenSwap = async (pool: Contract, owner: SignerWithAddress, fromToken: string, toToken: string) => {
+        // amount of tokens to swap
+        const amountTokens = 100;
+
+        // Get initial balances of tokens for the owner
+        const initialFromBalance = await pool.balanceOfTokens(owner.address, fromToken);
+        const initialToBalance = await pool.balanceOfTokens(owner.address, toToken);
+
+        // Approve the contract to spend tokens from the owner's account
+        await pool.connect(owner).approveTokens(amountTokens, fromToken);
+
+        // Execute the swap
+        const result = await pool.connect(owner).swapTokensIn(amountTokens, fromToken, toToken);
+
+        // Get updated balances after the swap
+        const updatedFromBalance = await pool.balanceOfTokens(owner.address, fromToken);
+        const updatedToBalance = await pool.balanceOfTokens(owner.address, toToken);
+
+        //  assertions to check the result of the swap
+        expect(updatedFromBalance).to.equal(initialFromBalance.sub(amountTokens)); // Tokens were deducted from the 'from' balance
+        expect(updatedToBalance).to.be.greaterThan(initialToBalance); // Tokens were received in the 'to' balance
+
+        //  assertions to check the result of the swap
+        expect(updatedFromBalance).to.equal(initialFromBalance.sub(amountTokens)); // Tokens were deducted from the 'from' balance
+        expect(updatedToBalance).to.be.greaterThan(initialToBalance);
+    };
 });
