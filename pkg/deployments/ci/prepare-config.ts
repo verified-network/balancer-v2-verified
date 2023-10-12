@@ -1,6 +1,10 @@
 import path from 'path';
 import { homedir } from 'os';
 import { mkdirSync, writeFileSync } from 'fs';
+// import dotenv from 'dotenv';
+
+// dotenv.config();
+
 
 const HH_CONFIG_FILENAME = `${homedir()}/.hardhat/networks.json`;
 
