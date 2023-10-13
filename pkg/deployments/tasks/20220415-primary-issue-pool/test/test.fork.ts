@@ -19,15 +19,16 @@ describeForkTest('PrimaryPoolFactory', 'mainnet', 8586768, function () {
 
     let task: Task;
 
-    const VCUSD = '0xa6aa25115f23F3ADc4471133bbDC401b613DbF65';
     const USDC = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
+    const VCUSD = '0xa6aa25115f23F3ADc4471133bbDC401b613DbF65';
     const USDT = '0xdac17f958d2ee523a2206206994597c13d831ec7';
 
     const tokens = [USDC, VCUSD];
     const swapFeePercentage = fp(0.01);
-    const initialBalanceVCUSD = fp(1e18); //18 digits
     const initialBalanceUSDC = fp(1e6).div(1e12); // 6 digits
-    const initialBalances = [initialBalanceVCUSD, initialBalanceUSDC];
+    const initialBalanceVCUSD = fp(1e18); //18 digits
+
+    const initialBalances = [, initialBalanceUSDC, initialBalanceVCUSD];
 
     const minimumPrice = fp(8);
     const minimumOrderSize = fp(1);
@@ -54,12 +55,12 @@ describeForkTest('PrimaryPoolFactory', 'mainnet', 8586768, function () {
 
         ``
 
-        vcusd = await task.instanceAt('IERC20', VCUSD);
         usdc = await task.instanceAt('IERC20', USDC);
+        vcusd = await task.instanceAt('IERC20', VCUSD);
         usdt = await task.instanceAt('IERC20', USDT);
 
-        await vcusd.connect(whale).approve(vault.address, MAX_UINT256);
         await usdc.connect(whale).approve(vault.address, MAX_UINT256);
+        await vcusd.connect(whale).approve(vault.address, MAX_UINT256);
         await usdt.connect(whale).approve(vault.address, MAX_UINT256);
 
 
@@ -68,9 +69,6 @@ describeForkTest('PrimaryPoolFactory', 'mainnet', 8586768, function () {
     describe('create and swap', () => {
         let pool: Contract;
         let poolId: string;
-        let VCUSD: string;
-        let USDC: string;
-        let USDT: string;
 
         it('deploy a primary issue pool', async () => {
             try {
@@ -94,9 +92,10 @@ describeForkTest('PrimaryPoolFactory', 'mainnet', 8586768, function () {
 
 
 
-        it('onInitialize the pool', async () => {
-            await vcusd.connect(whale).approve(vault.address, MAX_UINT256);
+        it('Initialize the pool', async () => {
             await usdc.connect(whale).approve(vault.address, MAX_UINT256);
+            await usdc.connect(whale).approve(vault.address, MAX_UINT256);
+
 
 
             const userData = WeightedPoolEncoder.joinInit(initialBalances);
@@ -111,115 +110,148 @@ describeForkTest('PrimaryPoolFactory', 'mainnet', 8586768, function () {
             expect(balances).to.deep.equal(initialBalances);
         });
 
+
         it('swap in the pool', async () => {
-            const amount = fp(500);
+            try {
+                const amount = fp(500);
 
-            if ((await vcusd.balanceOf(owner.address)).lt(amount)) {
-                throw new Error('Insufficient VCUSD balance for the swap');
+
+                // const balance = await vcusd.balanceOf(owner.address);
+                // console.log("Owner's VCUSD balance: ", balance.toString());
+
+                // if (balance.lt(amount)) {
+                //     throw new Error('Insufficient VCUSD balance for the swap');
+                // }
+
+                // if ((await vcusd.balanceOf(owner.address)).lt(amount)) {
+                //     throw new Error('Insufficient VCUSD balance for the swap');
+                // }
+
+
+                await usdc.connect(whale).transfer(owner.address, amount);
+                await usdc.connect(owner).approve(vault.address, amount);
+
+                await vault
+                    .connect(owner)
+                    .swap(
+                        { kind: SwapKind.GivenIn, poolId, assetIn: usdc, assetOut: usdc, amount, userData: '0x' },
+                        { sender: owner.address, recipient: owner.address, fromInternalBalance: false, toInternalBalance: false },
+                        0,
+                        MAX_UINT256
+                    );
+
+                //  owner's VCUSD balance
+                // console.log("Owner's VCUSD balance: ", (await vcusd.balanceOf(owner.address)).toString());
+
+                // Assert pool swap
+                const expectedUSDC = amount.div(1e12);
+                expectEqualWithError(await usdc.balanceOf(owner.address), 0, 0.0001);
+                expectEqualWithError(await usdc.balanceOf(owner.address), expectedUSDC, 0.1);
+            } catch (error) {
+                console.error('An error occurred:', error);
+                throw error; // 
             }
-            await vcusd.connect(whale).transfer(owner.address, amount);
-            await vcusd.connect(owner).approve(vault.address, amount);
-
-            await vault
-                .connect(owner)
-                .swap(
-                    { kind: SwapKind.GivenIn, poolId, assetIn: VCUSD, assetOut: USDC, amount, userData: '0x' },
-                    { sender: owner.address, recipient: owner.address, fromInternalBalance: false, toInternalBalance: false },
-                    0,
-                    MAX_UINT256
-                );
-
-            // Assert pool swap
-            const expectedUSDC = amount.div(1e12);
-            expectEqualWithError(await vcusd.balanceOf(owner.address), 0, 0.0001);
-            expectEqualWithError(await usdc.balanceOf(owner.address), expectedUSDC, 0.1);
         });
 
-        // it('should allow swapping tokens with fees distributed to the pool', async () => {
-        //     const amount = fp(500);
-        //     const feePercentage = fp(0.01); // 1% fee
-        //     const initialPoolTokenBalance = await pool.balanceOf(owner.address);
+        it('check owner balance', async () => {
+            try {
+                const ownerAddress = owner.address;
 
-        //     // Transfer tokens to the owner's address
-        //     await vcusd.connect(whale).transfer(owner.address, amount);
-        //     await vcusd.connect(owner).approve(vault.address, amount);
-
-        //     // Execute a swap with fees
-        //     await vault
-        //         .connect(owner)
-        //         .swap(
-        //             { kind: SwapKind.GivenIn, poolId, assetIn: VCUSD, assetOut: USDC, amount, userData: '0x' },
-        //             { sender: owner.address, recipient: owner.address, fromInternalBalance: false, toInternalBalance: false },
-        //             0,
-        //             MAX_UINT256
-        //         );
-
-        //     // Calculate the expected fee amount
-        //     const expectedFee = amount.mul(feePercentage);
-
-        //     // Check the updated balances
-        //     const finalPoolTokenBalance = await pool.balanceOf(owner.address);
-        //     const finalUSDCBalance = await usdc.balanceOf(owner.address);
-
-        //     // The pool token balance should have increased by the fee amount
-        //     expect(finalPoolTokenBalance).to.equal(initialPoolTokenBalance.add(expectedFee));
-
-        //     // The USDC balance should have decreased by the swapped amount
-        //     expectEqualWithError(await vcusd.balanceOf(owner.address), 0, 0.0001);
-        //     expectEqualWithError(await usdc.balanceOf(owner.address), expectedFee, 0.1);
-        // });
-
-
-
-        //     describe('should swapSecurityIn', function () {
-        //         it('swap security tokens for currency tokens', async function () {
-        //             await TokenSwap(pool, owner, 'Security', 'Currency');
-        //         });
-        //     });
-
-        //     describe('swapSecurityOut', function () {
-        //         it('should swap security tokens out for currency tokens', async function () {
-        //             await TokenSwap(pool, owner, 'Currency', 'Security');
-        //         });
-        //     });
-
-        //     describe('swapCurrencyIn', function () {
-        //         it('should swap currency tokens in for security tokens', async function () {
-        //             await TokenSwap(pool, owner, 'Currency', 'Security');
-        //         });
-        //     });
-
-        //     describe('swapCurrencyOut', function () {
-        //         it('should swap currency tokens out for security tokens', async function () {
-        //             await TokenSwap(pool, owner, 'Security', 'Currency');
-        //         });
-        //     });
-
-        //     const TokenSwap = async (pool: Contract, owner: SignerWithAddress, fromToken: string, toToken: string) => {
-        //         // amount of tokens to swap
-        //         const amountTokens = 100;
-
-        //         // Get initial balances of tokens for the owner
-        //         const initialFromBalance = await pool.balanceOf(owner.address, fromToken);
-        //         const initialToBalance = await pool.balanceOf(owner.address, toToken);
-
-        //         // Approve the contract to spend tokens from the owner's account
-        //         await pool.connect(owner).approveTokens(amountTokens, fromToken);
-
-        //         // Execute the swap
-        //         const result = await pool.connect(owner).swapTokensIn(amountTokens, fromToken, toToken);
-
-        //         // Get updated balances after the swap
-        //         const updatedFromBalance = await pool.balanceOf(owner.address, fromToken);
-        //         const updatedToBalance = await pool.balanceOf(owner.address, toToken);
-
-        //         // Assertions to check the result of the swap
-        //         expect(updatedFromBalance).to.equal(initialFromBalance.sub(amountTokens)); // Tokens were deducted from the 'from' balance
-        //         expect(updatedToBalance).to.be.greaterThan(initialToBalance); // Tokens were received in the 'to' balance
-
-        //         // Assertions to check the result of the swap
-        //         expect(updatedFromBalance).to.equal(initialFromBalance.sub(amountTokens)); // Tokens were deducted from the 'from' balance
-        //         expect(updatedToBalance).to.be.greaterThan(initialToBalance);
-        //     };
+                const provider = new ethers.providers.JsonRpcProvider();
+                const ownerBalance = await provider.getBalance(ownerAddress);
+                console.log("Owner's ETH balance: ", ownerBalance.toString());
+            } catch (error) {
+                console.error('An error occurred while checking owner balance:', error);
+                throw error;
+            }
+        });
     });
+
+
+    // it('should allow swapping tokens with fees distributed to the pool', async () => {
+    //     const amount = fp(500);
+    //     const feePercentage = fp(0.01); // 1% fee
+    //     const initialPoolTokenBalance = await pool.balanceOf(owner.address);
+
+    //     // Transfer tokens to the owner's address
+    //     await vcusd.connect(whale).transfer(owner.address, amount);
+    //     await vcusd.connect(owner).approve(vault.address, amount);
+
+    //     // Execute a swap with fees
+    //     await vault
+    //         .connect(owner)
+    //         .swap(
+    //             { kind: SwapKind.GivenIn, poolId, assetIn: VCUSD, assetOut: USDC, amount, userData: '0x' },
+    //             { sender: owner.address, recipient: owner.address, fromInternalBalance: false, toInternalBalance: false },
+    //             0,
+    //             MAX_UINT256
+    //         );
+
+    //     // Calculate the expected fee amount
+    //     const expectedFee = amount.mul(feePercentage);
+
+    //     // Check the updated balances
+    //     const finalPoolTokenBalance = await pool.balanceOf(owner.address);
+    //     const finalUSDCBalance = await usdc.balanceOf(owner.address);
+
+    //     // The pool token balance should have increased by the fee amount
+    //     expect(finalPoolTokenBalance).to.equal(initialPoolTokenBalance.add(expectedFee));
+
+    //     // The USDC balance should have decreased by the swapped amount
+    //     expectEqualWithError(await vcusd.balanceOf(owner.address), 0, 0.0001);
+    //     expectEqualWithError(await usdc.balanceOf(owner.address), expectedFee, 0.1);
+    // });
+
+
+
+    //     describe('should swapSecurityIn', function () {
+    //         it('swap security tokens for currency tokens', async function () {
+    //             await TokenSwap(pool, owner, 'Security', 'Currency');
+    //         });
+    //     });
+
+    //     describe('swapSecurityOut', function () {
+    //         it('should swap security tokens out for currency tokens', async function () {
+    //             await TokenSwap(pool, owner, 'Currency', 'Security');
+    //         });
+    //     });
+
+    //     describe('swapCurrencyIn', function () {
+    //         it('should swap currency tokens in for security tokens', async function () {
+    //             await TokenSwap(pool, owner, 'Currency', 'Security');
+    //         });
+    //     });
+
+    //     describe('swapCurrencyOut', function () {
+    //         it('should swap currency tokens out for security tokens', async function () {
+    //             await TokenSwap(pool, owner, 'Security', 'Currency');
+    //         });
+    //     });
+
+    //     const TokenSwap = async (pool: Contract, owner: SignerWithAddress, fromToken: string, toToken: string) => {
+    //         // amount of tokens to swap
+    //         const amountTokens = 100;
+
+    //         // Get initial balances of tokens for the owner
+    //         const initialFromBalance = await pool.balanceOf(owner.address, fromToken);
+    //         const initialToBalance = await pool.balanceOf(owner.address, toToken);
+
+    //         // Approve the contract to spend tokens from the owner's account
+    //         await pool.connect(owner).approveTokens(amountTokens, fromToken);
+
+    //         // Execute the swap
+    //         const result = await pool.connect(owner).swapTokensIn(amountTokens, fromToken, toToken);
+
+    //         // Get updated balances after the swap
+    //         const updatedFromBalance = await pool.balanceOf(owner.address, fromToken);
+    //         const updatedToBalance = await pool.balanceOf(owner.address, toToken);
+
+    //         // Assertions to check the result of the swap
+    //         expect(updatedFromBalance).to.equal(initialFromBalance.sub(amountTokens)); // Tokens were deducted from the 'from' balance
+    //         expect(updatedToBalance).to.be.greaterThan(initialToBalance); // Tokens were received in the 'to' balance
+
+    //         // Assertions to check the result of the swap
+    //         expect(updatedFromBalance).to.equal(initialFromBalance.sub(amountTokens)); // Tokens were deducted from the 'from' balance
+    //         expect(updatedToBalance).to.be.greaterThan(initialToBalance);
+    //     };
 });
