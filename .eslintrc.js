@@ -5,13 +5,12 @@ module.exports = {
   extends: ['eslint:recommended', 'plugin:@typescript-eslint/recommended'],
   rules: {
     'comma-spacing': ['error', { before: false, after: true }],
-    'prettier/prettier': 'error',
     'mocha-no-only/mocha-no-only': ['error'],
+    'prettier/prettier': [
+      'error',
+      {
+        endOfFile: 'auto',
+      },
+    ],
   },
-  'prettier/prettier': [
-    'errors',
-    {
-      endOfFile: 'auto',
-    },
-  ],
 };

@@ -148,7 +148,7 @@ export default {
     if (!pauseWindowDuration) pauseWindowDuration = 3 * MONTH;
     if (!bufferPeriodDuration) bufferPeriodDuration = MONTH;
     if (!offeringDocs) offeringDocs = '';
-    
+
     return {
       securityToken: params.securityToken,
       currencyToken: params.currencyToken,
