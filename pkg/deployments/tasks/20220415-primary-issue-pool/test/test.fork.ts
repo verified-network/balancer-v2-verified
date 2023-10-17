@@ -126,9 +126,6 @@ describeForkTest('PrimaryPoolFactory', 'goerli', 8586768, function () {
                 expectEqualWithError(await vcusd.balanceOf(owner.address), 0, 0.0001);
                 expectEqualWithError(await usdc.balanceOf(owner.address), expectedUSDC, 0.1);
 
-
-
-
             } catch (error) {
                 console.error('An error occurred:', error);
                 throw error; // 
