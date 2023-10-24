@@ -28,7 +28,6 @@
     "lint": "eslint . --ext .ts --ignore-path ../../.eslintignore  --max-warnings 0",
     "prepack": "yarn build",
     "test": "hardhat test ./**/test/*.ts",
-    "testprimary" : "hardhat test ./tasks/20220415-primary-issue-pool/test/*.ts",
     "ci:prepare-config": "ts-node ci/prepare-config.ts"
   },
   "devDependencies": {
