@@ -7,17 +7,18 @@ import { bn, fp, scaleDown, scaleUp } from '@balancer-labs/v2-helpers/src/number
 import { MAX_UINT112, ZERO_BYTES32 } from '@balancer-labs/v2-helpers/src/constants';
 import { sharedBeforeEach } from '@balancer-labs/v2-common/sharedBeforeEach';
 import { PoolSpecialization, SwapKind } from '@balancer-labs/balancer-js';
-import { RawSecondaryPoolDeployment } from '@balancer-labs/v2-helpers/src/models/pools/secondary-issue/types';
+import { RawMarginPoolDeployment } from '@balancer-labs/v2-helpers/src/models/pools/margin-trading/types';
 
 import Token from '@balancer-labs/v2-helpers/src/models/tokens/Token';
 import TokenList from '@balancer-labs/v2-helpers/src/models/tokens/TokenList';
-import SecondaryPool from '@balancer-labs/v2-helpers/src/models/pools/secondary-issue/SecondaryIssuePool';
+import MarginPool from '@balancer-labs/v2-helpers/src/models/pools/margin-trading/MarginTradingPool';
 import { keccak256 } from "@ethersproject/keccak256";
 import { toUtf8Bytes } from "@ethersproject/strings";
 import Decimal from 'decimal.js';
+import { formatBytes32String } from 'ethers/lib/utils';
 
-describe('SecondaryPool', function () {
-  let pool: SecondaryPool, tokens: TokenList, securityToken: Token, currencyToken: Token;
+describe('MarginTradingPool', function () {
+  let pool: MarginPool, tokens: TokenList, securityToken: Token, currencyToken: Token;
   let   trader: SignerWithAddress,
         lp: SignerWithAddress,
         admin: SignerWithAddress,
@@ -28,8 +29,15 @@ describe('SecondaryPool', function () {
   const usdcAmount =(amount: Number)=>{
     return ethers.utils.parseUnits(amount.toString(), 6);
   }
-  const maxCurrencyOffered = fp(5);
+  
+  const securityType = formatBytes32String('Shares');
+  const cficode = formatBytes32String('GCEX');
+  const minOrderSize = fp(1);
+  const margin = fp(0.1);
+  const collateral = fp(0.5);
   const maxSecurityOffered = fp(5);
+  const tradeFeePercentage = fp(0.01);
+  
   const TOTAL_TOKENS = 3;
   const SCALING_FACTOR = fp(1);
   const _DEFAULT_MINIMUM_BPT = 1e6;
@@ -55,9 +63,9 @@ describe('SecondaryPool', function () {
     currencyToken = tokenUSDC;
   });
    
-  async function deployPool(params: RawSecondaryPoolDeployment, mockedVault = true): Promise<any> {
-    params = Object.assign({}, { swapFeePercentage: POOL_SWAP_FEE_PERCENTAGE, owner, admin }, params);
-    pool = await SecondaryPool.create(params, mockedVault);
+  async function deployPool(params: RawMarginPoolDeployment, mockedVault = true): Promise<any> {
+    params = Object.assign({}, { tradeFeePercentage: POOL_SWAP_FEE_PERCENTAGE, owner, admin }, params);
+    pool = await MarginPool.create(params, mockedVault);
     return pool;
   }
   const mulDown = (a: BigNumber, b: BigNumber)=>{
@@ -73,7 +81,7 @@ describe('SecondaryPool', function () {
     context('when the creation succeeds', () => {
 
       sharedBeforeEach('deploy pool', async () => {
-        await deployPool({ securityToken, currencyToken }, false);
+        await deployPool({ securityToken, currencyToken, securityType, cficode, minOrderSize, margin, collateral, tradeFeePercentage }, false);
       });
 
       it('sets the vault', async () => {
@@ -101,7 +109,7 @@ describe('SecondaryPool', function () {
       });
 
       it('sets swap fee', async () => {
-        expect(await pool.getSwapFeePercentage()).to.equal(POOL_SWAP_FEE_PERCENTAGE);
+        expect(await pool.getFee()).to.equal(POOL_SWAP_FEE_PERCENTAGE);
       });
 
       it('sets the name', async () => {
@@ -120,7 +128,7 @@ describe('SecondaryPool', function () {
 
     context('when the creation fails', () => {
       it('reverts if there are repeated tokens', async () => {
-        await expect(deployPool({ securityToken, currencyToken: securityToken }, false)).to.be.revertedWith('UNSORTED_ARRAY');
+        await expect(deployPool({ securityToken, currencyToken: securityToken, securityType, cficode, minOrderSize, margin, collateral, tradeFeePercentage }, false)).to.be.revertedWith('UNSORTED_ARRAY');
       });
 
     });
@@ -131,7 +139,7 @@ describe('SecondaryPool', function () {
     let previousBalances: BigNumber[];
 
     sharedBeforeEach('deploy pool', async () => {
-      await deployPool({securityToken, currencyToken }, false);
+      await deployPool({securityToken, currencyToken, securityType, cficode, minOrderSize, margin, collateral, tradeFeePercentage }, false);
       await tokens.approve({ from: owner, to: pool.vault.address, amount: fp(500) });
       await tokenUSDC.approve(pool.vault.address,  usdcAmount(500), {from: owner});
 
@@ -159,7 +167,7 @@ describe('SecondaryPool', function () {
           from: owner, 
           recipient: owner.address, 
           initialBalances: maxAmountsIn 
-        })).to.be.revertedWith('UNHANDLED_BY_SECONDARY_POOL');
+        })).to.be.revertedWith('BAL#356');
     }); 
   });
 
@@ -171,20 +179,20 @@ describe('SecondaryPool', function () {
 
     sharedBeforeEach('deploy and initialize pool', async () => {
 
-      secondary_pool = await deployPool({ securityToken, currencyToken }, true);
+      secondary_pool = await deployPool({ securityToken, currencyToken, securityType, cficode, minOrderSize, margin, collateral, tradeFeePercentage }, true);
 
       await setBalances(pool, { securityBalance: fp(5000), currencyBalance: usdcAmount(5000), bptBalance: MAX_UINT112.sub(_DEFAULT_MINIMUM_BPT) });
       
       const poolId = await pool.getPoolId();
       currentBalances = (await pool.vault.getPoolTokens(poolId)).balances;
-      ob = await pool.orderbook(); 
+      //ob = await pool.orderbook(); 
       params = {
         fee: POOL_SWAP_FEE_PERCENTAGE,
       };
     });
 
     const setBalances = async (
-      pool: SecondaryPool,
+      pool: MarginPool,
       balances: { securityBalance?: BigNumber; currencyBalance?: BigNumber; bptBalance?: BigNumber }
     ) => {
 
@@ -296,7 +304,7 @@ describe('SecondaryPool', function () {
   describe('joins and exits', () => {
     let maxAmountsIn : BigNumber[];
     sharedBeforeEach('deploy pool', async () => {
-      await deployPool({ securityToken, currencyToken }, false);
+      await deployPool({ securityToken, currencyToken, securityType, cficode, minOrderSize, margin, collateral, tradeFeePercentage }, false);
 
       await tokens.approve({ from: owner, to: pool.vault.address, amount: fp(500) });
       await tokenUSDC.approve(pool.vault.address,  usdcAmount(500), {from: owner});
@@ -304,7 +312,7 @@ describe('SecondaryPool', function () {
         maxAmountsIn = new Array(tokens.length);
         maxAmountsIn[pool.securityIndex] = maxSecurityOffered; 
         maxAmountsIn[pool.currencyIndex] = usdcAmount(5);
-        maxAmountsIn[pool.bptIndex] = fp(0);
+        maxAmountsIn[pool.bptIndex] = MAX_UINT112.sub(_DEFAULT_MINIMUM_BPT);
 
         await pool.init({ from: owner, recipient: owner.address, initialBalances: maxAmountsIn });
     });
@@ -320,7 +328,7 @@ describe('SecondaryPool', function () {
         data: '0x',
       });
 
-      await expect(tx).to.be.revertedWith('UNHANDLED_BY_SECONDARY_POOL');
+      await expect(tx).to.be.revertedWith('BAL#356');
     });
     
     context('when paused for emergency proportional exit', () => {

@@ -11,6 +11,7 @@ import { RawVaultDeployment, VaultDeployment } from '../vault/types';
 import { RawLinearPoolDeployment, LinearPoolDeployment } from '../pools/linear/types';
 import { RawPrimaryPoolDeployment, PrimaryPoolDeployment } from '../pools/primary-issue/types';
 import { RawSecondaryPoolDeployment, SecondaryPoolDeployment } from '../pools/secondary-issue/types';
+import { RawMarginPoolDeployment, MarginPoolDeployment } from '../pools/margin-trading/types';
 import { RawStablePoolDeployment, StablePoolDeployment } from '../pools/stable/types';
 
 import {
@@ -177,6 +178,35 @@ export default {
       currencyToken: params.currencyToken,
       maxSecurityOffered,
       swapFeePercentage,
+      pauseWindowDuration,
+      bufferPeriodDuration,
+      owner: params.owner,
+    };
+  },
+
+  toMarginPoolDeployment(params: RawMarginPoolDeployment): MarginPoolDeployment {
+    let { securityType, 
+          cficode,
+          minOrderSize,
+          margin,
+          collateral,
+          tradeFeePercentage, 
+          pauseWindowDuration, bufferPeriodDuration } = params;
+
+    if (!minOrderSize) minOrderSize = bn(100);
+    if (!tradeFeePercentage) tradeFeePercentage = bn(1e12);
+    if (!pauseWindowDuration) pauseWindowDuration = 3 * MONTH;
+    if (!bufferPeriodDuration) bufferPeriodDuration = MONTH;
+
+    return {
+      securityToken: params.securityToken,
+      currencyToken: params.currencyToken,
+      securityType,
+      cficode,
+      minOrderSize,
+      margin,
+      collateral,
+      tradeFeePercentage,
       pauseWindowDuration,
       bufferPeriodDuration,
       owner: params.owner,

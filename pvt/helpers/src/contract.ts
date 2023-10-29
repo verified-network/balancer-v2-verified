@@ -49,7 +49,7 @@ export function getArtifact(contract: string): Artifact {
   if (!contract.includes('/')) {
     artifactsPath = path.resolve('./artifacts');
   } else {
-    if(contract.split('/')[0]!="pool-primary-issues" && contract.split('/')[0]!="pool-secondary-issues"){
+    if(contract.split('/')[0]!="pool-primary-issues" && contract.split('/')[0]!="pool-secondary-issues" && contract.split('/')[0]!="pool-margin-trading"){
       const packageName = `@balancer-labs/${contract.split('/')[0]}`;
       const packagePath = path.dirname(require.resolve(`${packageName}/package.json`));
       artifactsPath = `${packagePath}/artifacts`;
