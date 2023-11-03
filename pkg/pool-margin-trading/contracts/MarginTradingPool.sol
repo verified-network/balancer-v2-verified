@@ -244,7 +244,7 @@ contract MarginTradingPool is BasePool, IGeneralPool {
                 //cancel order with otype having order ref [hash value]
                 if ((request.tokenOut == IERC20(_security) || request.tokenOut == IERC20(_currency)) 
                         && request.tokenIn == IERC20(this) && request.kind==IVault.SwapKind.GIVEN_IN) {
-                    amount = _orderbook.cancelOrder(otype);
+                    amount = _orderbook.cancelOrder(otype, request);
                     require(amount==request.amount, "Insufficient pool tokens swapped in");
                     emit MarginOrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, tp, amount, block.timestamp, otype);
                     // The amount given is for token out, the amount calculated is for token in

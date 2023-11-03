@@ -64,7 +64,6 @@ contract Orderbook is IMarginOrder, ITrade, Ownable{
         IMarginOrder.Params memory _params
     ) public onlyOwner returns(bytes32){
         require(_params.trade == IMarginOrder.OrderType.Market || _params.trade == IMarginOrder.OrderType.Limit);
-
         if(block.timestamp == _previousTs)
             _previousTs = _previousTs + 1;
         else
@@ -101,18 +100,21 @@ contract Orderbook is IMarginOrder, ITrade, Ownable{
         IPoolSwapStructs.SwapRequest memory _request
     ) public onlyOwner returns(uint256){        
         require(_orders[ref].status == IMarginOrder.OrderStatus.Open, "Order is already filled");
-        require(_orders[ref].party == msg.sender, "Sender is not order creator");
+        require(_orders[ref].party == _request.from, "Sender is not order creator");
         uint256 qty = _orders[ref].qty;
         if(address(_request.tokenIn)==_security || address(_request.tokenIn)==_currency)
             _orders[ref].qty = Math.add(_request.amount, qty);
         else
-            _orders[ref].qty = _request.amount;
+            _orders[ref].qty = Math.sub(qty, _request.amount);
+            //_orders[ref].qty = _request.amount;
         return qty;
     }
 
-    function cancelOrder(bytes32 ref) public onlyOwner returns(uint256){        
+    function cancelOrder(bytes32 ref,
+                        IPoolSwapStructs.SwapRequest memory _request
+                        ) public onlyOwner returns(uint256){        
         require(_orders[ref].status == IMarginOrder.OrderStatus.Open, "Order is already filled");
-        require(_orders[ref].party == msg.sender, "Sender is not order creator");
+        require(_orders[ref].party == _request.from, "Sender is not order creator");
         _orders[ref].status = IMarginOrder.OrderStatus.Cancelled;
         delete _orderbook[_orderIndex[ref] - 1];
         return _orders[ref].qty;
