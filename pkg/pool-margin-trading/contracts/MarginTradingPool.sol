@@ -257,11 +257,11 @@ contract MarginTradingPool is BasePool, IGeneralPool {
                 //edit order with otype having order ref [hash value]
                 if (request.tokenIn == IERC20(this) && request.kind==IVault.SwapKind.GIVEN_IN) {
                     //calculate stop loss price (amount) with constraints of margin and collateral obligation
-                    amount = FixedPoint.sub(tp, FixedPoint.mulDown(tp, FixedPoint.add(_margin, _collateral)));
-                    emit MarginOrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, tp, amount, block.timestamp, otype);
+                    ref = FixedPoint.sub(tp, FixedPoint.mulDown(tp, FixedPoint.add(_margin, _collateral)));
                     //request amount (security, currency) is less than original amount, so some BPT is returned to the pool
                     amount = _orderbook.editOrder(otype, request);
-                    amount = Math.sub(amount, request.amount);                    
+                    amount = Math.sub(amount, request.amount);   
+                    emit MarginOrderBook(request.from, address(request.tokenIn), address(request.tokenOut), amount, tp, ref, block.timestamp, otype);                 
                     //security or currency tokens are paid out for bpt to be paid in
                     return _downscaleDown(amount, scalingFactors[indexOut]);
                 } 
@@ -297,7 +297,7 @@ contract MarginTradingPool is BasePool, IGeneralPool {
             if(balances[_bptIndex] > request.amount){
                 balances[_bptIndex] = Math.sub(balances[_bptIndex], request.amount);
                 //calculate stop loss price (amount) with constraints of margin and collateral obligation
-                amount = FixedPoint.sub(params.price, FixedPoint.mulDown(params.price, FixedPoint.add(_margin, _collateral)));
+                ref = FixedPoint.sub(params.price, FixedPoint.mulDown(params.price, FixedPoint.add(_margin, _collateral)));
                 //register order in orderbook
                 otype = _orderbook.newOrder(request, params);
             }       
@@ -308,7 +308,7 @@ contract MarginTradingPool is BasePool, IGeneralPool {
             _revert(Errors.UNHANDLED_BY_MARGIN_POOL);
         }
             
-        emit MarginOrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, params.price, amount, block.timestamp, otype);
+        emit MarginOrderBook(request.from, address(request.tokenIn), address(request.tokenOut), request.amount, params.price, ref, block.timestamp, otype);
         
         // bpt tokens equivalent to amount requested are exiting the Pool, so we round down.
         return _downscaleDown(request.amount, scalingFactors[indexOut]);

@@ -137,7 +137,8 @@ contract Orderbook is IMarginOrder, ITrade, Ownable{
         });                 
         _tradeRefs[_orders[_ref].party][oIndex] = tradeToReport;
         if(_cref!="")
-            _tradeRefs[_orders[_cref].party][oIndex] = tradeToReport;        
+            _tradeRefs[_orders[_cref].party][oIndex] = tradeToReport;   
+                 
         _trades[_orders[_ref].party].push(tradeToReport.dt);
         if(_cref!="")
             _trades[_orders[_cref].party].push(tradeToReport.dt);
