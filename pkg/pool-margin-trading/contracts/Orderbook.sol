@@ -120,13 +120,13 @@ contract Orderbook is IMarginOrder, ITrade, Ownable{
         return _orders[ref].qty;
     }
     
-    function reportTrade(bytes32 _ref, bytes32 _cref, uint256 securityTraded, uint256 currencyTraded) override external {
+    function reportTrade(bytes32 _ref, bytes32 _cref, uint256 securityTraded, uint256 currencyTraded, uint256 timestamp) override external {
         require(msg.sender==_balancerManager, "Unauthorized to report trade");
         _orders[_ref].status = IMarginOrder.OrderStatus.Filled;
         if(_cref!="")
             _orders[_cref].status = IMarginOrder.OrderStatus.Filled;
-        _previousTs = _previousTs + 1;
-        uint256 oIndex = _previousTs;
+        //_previousTs = _previousTs + 1;
+        uint256 oIndex = timestamp; //_previousTs;
         ITrade.trade memory tradeToReport = ITrade.trade({
             partyRef: _ref,
             partyAddress:  _orders[_ref].party,

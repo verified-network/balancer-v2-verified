@@ -265,7 +265,7 @@ contract MarginTradingPool is BasePool, IGeneralPool {
                     //security or currency tokens are paid out for bpt to be paid in
                     return _downscaleDown(amount, scalingFactors[indexOut]);
                 } 
-                else if (request.tokenOut == IERC20(this) && request.kind==IVault.SwapKind.GIVEN_IN && tp>0) {
+                else if (request.tokenOut == IERC20(this) && request.kind==IVault.SwapKind.GIVEN_IN) {
                     //calculate stop loss price (amount) with constraints of margin and collateral obligation
                     ref = FixedPoint.sub(tp, FixedPoint.mulDown(tp, FixedPoint.add(_margin, _collateral)));                    
                     //request amount (security, currency) is more than original amount, so additional BPT is paid out from the pool

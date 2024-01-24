@@ -97,7 +97,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         if(address(_request.tokenIn)==_security || address(_request.tokenIn)==_currency)
             _orders[ref].qty = Math.add(_request.amount, qty);
         else
-            _orders[ref].qty = Math.sub(_orders[ref].qty ,_request.amount);
+            _orders[ref].qty = Math.sub(_orders[ref].qty, _request.amount);
         return qty;
     }
 
