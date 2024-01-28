@@ -159,12 +159,12 @@ contract SecondaryIssuePool is BasePool, IGeneralPool {
         else if (request.kind == IVault.SwapKind.GIVEN_OUT)
             request.amount = _upscale(request.amount, scalingFactors[indexOut]);
 
-        if(request.tokenIn==IERC20(_currency) && request.kind==IVault.SwapKind.GIVEN_IN)
+        /*if(request.tokenIn==IERC20(_currency) && request.kind==IVault.SwapKind.GIVEN_IN)
             require(balances[_currencyIndex]>=request.amount, "Insufficient currency balance");
         else if(request.tokenIn==IERC20(_security) && request.kind==IVault.SwapKind.GIVEN_IN)
             require(balances[_securityIndex]>=request.amount, "Insufficient security balance");
         else if(request.tokenIn==IERC20(this) && request.kind==IVault.SwapKind.GIVEN_IN)
-            require(balances[_bptIndex]>=request.amount, "Insufficient pool token balance");
+            require(balances[_bptIndex]>=request.amount, "Insufficient pool token balance");*/
 
         if(request.userData.length!=0){
             (otype, tp) = abi.decode(request.userData, (bytes32, uint256));
