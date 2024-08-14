@@ -132,6 +132,10 @@ contract PrimaryIssuePool is IPrimaryPool, BasePool, IGeneralPool {
                         owner);
     }
 
+    function getFee() external view returns(uint256){
+        return _swapFee;
+    }
+
     function getSecurity() external view override returns (IERC20) {
         return _security;
     }

@@ -24,7 +24,7 @@ abstract contract Heap {
         _buyOrderbook.push(Node(_value, _ref));
 
         // Start at the end of the heap
-        uint256 currentIndex = Math.sub(_buyOrderbook.length, 1);
+        uint256 currentIndex = _buyOrderbook.length - 1;
 
         // Bubble up the value until it reaches it's correct place (i.e. it is smaller than it's parent)
         uint256 parentIndex = Math.div(currentIndex, 2, false);
@@ -53,7 +53,7 @@ abstract contract Heap {
         _sellOrderbook.push(Node(_value, _ref));
 
         // Start at the end of the heap
-        uint256 currentIndex = Math.sub(_sellOrderbook.length, 1);
+        uint256 currentIndex = _sellOrderbook.length - 1;
 
         // Bubble up the value until it reaches it's correct place (i.e. it is larger than it's parent)
         uint256 parentIndex = Math.div(currentIndex, 2, false);
@@ -85,7 +85,7 @@ abstract contract Heap {
         Node memory toReturn = _buyOrderbook[0];
 
         // Takes the last element of the array and put it at the root
-        _buyOrderbook[0] = _buyOrderbook[Math.sub(_buyOrderbook.length, 1)];
+        _buyOrderbook[0] = _buyOrderbook[_buyOrderbook.length - 1];
         _buyIndex[_buyOrderbook[0].ref] = 0;
 
         // Delete the last element from the array
@@ -113,7 +113,7 @@ abstract contract Heap {
         Node memory toReturn = _sellOrderbook[0];
 
         // Takes the last element of the array and put it at the root
-        _sellOrderbook[0] = _sellOrderbook[Math.sub(_sellOrderbook.length, 1)];
+        _sellOrderbook[0] = _sellOrderbook[_sellOrderbook.length - 1];
         _sellIndex[_sellOrderbook[0].ref] = 0;
 
         // Delete the last element from the array
@@ -132,7 +132,7 @@ abstract contract Heap {
     }
 
     function bubbleDownForMax(uint256 currentIndex) private {
-        while (Math.mul(currentIndex, 2) < Math.sub(_buyOrderbook.length, 1)) {
+        while (Math.mul(currentIndex, 2) < (_buyOrderbook.length-1)) {
             // get the current index of the children
             uint256 j = Math.mul(currentIndex, 2);
 
@@ -164,7 +164,7 @@ abstract contract Heap {
     }
 
     function bubbleDownForMin(uint256 currentIndex) private {
-        while (Math.mul(currentIndex, 2) < Math.sub(_sellOrderbook.length, 1)) {
+        while (Math.mul(currentIndex, 2) < (_sellOrderbook.length - 1)) {
             // get the current index of the children
             uint256 j = Math.mul(currentIndex, 2);
 
@@ -214,7 +214,7 @@ abstract contract Heap {
                 removeBuyOrder();
             }
             else{
-                _buyOrderbook[_buyIndex[ref]] = _buyOrderbook[Math.sub(_buyOrderbook.length, 1)];
+                _buyOrderbook[_buyIndex[ref]] = _buyOrderbook[_buyOrderbook.length - 1];
                 _buyOrderbook.pop();
             }
         }

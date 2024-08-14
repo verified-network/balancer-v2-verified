@@ -19,5 +19,7 @@ interface IPrimaryIssuePool {
 
     function getIssueCutoffTime() external view returns(uint256);
 
+    function getFee() external view returns(uint256);
+
 }
 

@@ -11,7 +11,8 @@ import "./interfaces/IOrder.sol";
 import "./interfaces/ITrade.sol";
 import "./interfaces/ISecondaryIssuePool.sol";
 
-import "@balancer-labs/v2-solidity-utils/contracts/math/Math.sol";
+//import "@balancer-labs/v2-solidity-utils/contracts/math/Math.sol";
+import "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/SafeMath.sol";
 import "@balancer-labs/v2-solidity-utils/contracts/math/FixedPoint.sol";
 import "@balancer-labs/v2-solidity-utils/contracts/openzeppelin/Ownable.sol";
 import "@balancer-labs/v2-interfaces/contracts/vault/IPoolSwapStructs.sol";
@@ -32,12 +33,13 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
     mapping(address => mapping(uint256 => ITrade.trade)) private _tradeRefs;
 
     //mapping parties to trade time stamps
-    mapping(address => uint256[]) private _trades;
+    //mapping(address => uint256[]) private _trades;
+    event tradeExecuted(address indexed party, address indexed counterparty, uint256 tradeToReportDate);
 
-    address private _security;
-    address private _currency;
-    address payable private _balancerManager;
-    address private _pool;
+    address private immutable _security;
+    address private immutable _currency;
+    address payable private immutable _balancerManager;
+    address private immutable _pool;
 
     constructor(address balancerManager, address security, address currency, address pool){        
         _balancerManager = payable(balancerManager);
@@ -63,7 +65,8 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         IPoolSwapStructs.SwapRequest memory _request,
         IOrder.Params memory _params
     ) public onlyOwner returns(bytes32){
-        require(_params.trade == IOrder.OrderType.Market || _params.trade == IOrder.OrderType.Limit);
+        require(_request.amount!=0, "Traded amount is zero");
+        require(_params.trade == IOrder.OrderType.Market || _params.trade == IOrder.OrderType.Limit, "Invalid order type");
         _previousTs = block.timestamp == _previousTs ? _previousTs + 1 : block.timestamp;
         bytes32 ref = keccak256(abi.encodePacked(_request.from, _previousTs));
         //fill up order details
@@ -95,9 +98,9 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         editOrderbook(_price, ref, buy);
         uint256 qty = _orders[ref].qty;
         if(address(_request.tokenIn)==_security || address(_request.tokenIn)==_currency)
-            _orders[ref].qty = Math.add(_request.amount, qty);
+            _orders[ref].qty = SafeMath.add(_request.amount, qty);
         else
-            _orders[ref].qty = Math.sub(_orders[ref].qty, _request.amount);
+            _orders[ref].qty = SafeMath.sub(_orders[ref].qty, _request.amount);
         return qty;
     }
 
@@ -136,7 +139,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                 // since this is a sell order, counter offers must offer a better price
                 _marketOrders[index] = removeBuyOrder();
                 uint256 orderPrice = _marketOrders[index].price > 0 ? _marketOrders[index].price : price;
-                volume = Math.add(volume, _orders[_marketOrders[index].ref].qty.divDown(orderPrice));
+                volume = SafeMath.add(volume, _orders[_marketOrders[index].ref].qty.divDown(orderPrice));
                 //if it is a sell order, ie, security in
                 if (volume >= _orders[_ref].qty) {
                     //if available market depth exceeds qty to trade, exit and avoid unnecessary lookup through orderbook  
@@ -163,7 +166,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                     // if (price > _price) break;
                     _marketOrders[index] = removeSellOrder();
                     // price = price == 0 ? _price : _marketOrders[index].price;
-                    volume = Math.add(volume, price.mulDown(_orders[_marketOrders[index].ref].qty));
+                    volume = SafeMath.add(volume, price.mulDown(_orders[_marketOrders[index].ref].qty));
                     //if it is a buy order, ie, cash in
                     if(volume >= _orders[_ref].qty)
                         //if available market depth exceeds qty to trade, exit and avoid unnecessary lookup through orderbook  
@@ -221,7 +224,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                     if(securityTraded >= _orders[ref].qty){
                         securityTraded = _orders[ref].qty;
                         currencyTraded = _orders[ref].qty.mulDown(bestPrice);
-                        _orders[bestBid].qty = Math.sub(_orders[bestBid].qty, currencyTraded);
+                        _orders[bestBid].qty = SafeMath.sub(_orders[bestBid].qty, currencyTraded);
                         _orders[ref].qty = 0;
                         if(_orders[bestBid].qty == 0){
                             _orders[bestBid].status = IOrder.OrderStatus.Filled;
@@ -235,7 +238,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                     }    
                     else if(securityTraded!=0){
                         currencyTraded = securityTraded.mulDown(bestPrice);
-                        _orders[ref].qty = Math.sub(_orders[ref].qty, securityTraded);
+                        _orders[ref].qty = SafeMath.sub(_orders[ref].qty, securityTraded);
                         _orders[bestBid].qty = 0;
                         _orders[bestBid].status = IOrder.OrderStatus.Filled;
                         _orders[ref].status =  IOrder.OrderStatus.PartlyFilled;
@@ -249,7 +252,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                     if(currencyTraded >=  _orders[ref].qty){
                         currencyTraded = _orders[ref].qty;
                         securityTraded = _orders[ref].qty.divDown(bestPrice);
-                        _orders[bestOffer].qty = Math.sub(_orders[bestOffer].qty, securityTraded);
+                        _orders[bestOffer].qty = SafeMath.sub(_orders[bestOffer].qty, securityTraded);
                         _orders[ref].qty = 0;
                         if(_orders[bestOffer].qty == 0){
                             _orders[bestOffer].status = IOrder.OrderStatus.Filled;
@@ -263,7 +266,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
                     }    
                     else if(currencyTraded!=0){
                         securityTraded = currencyTraded.divDown(bestPrice);
-                        _orders[ref].qty = Math.sub(_orders[ref].qty, currencyTraded);
+                        _orders[ref].qty = SafeMath.sub(_orders[ref].qty, currencyTraded);
                         _orders[bestOffer].qty = 0;
                         _orders[bestOffer].status = IOrder.OrderStatus.Filled;
                         _orders[ref].status =  IOrder.OrderStatus.PartlyFilled; 
@@ -293,8 +296,9 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         });                 
         _tradeRefs[_orders[_ref].party][oIndex] = tradeToReport;
         _tradeRefs[_orders[_cref].party][oIndex] = tradeToReport;        
-        _trades[_orders[_ref].party].push(tradeToReport.dt);
-        _trades[_orders[_cref].party].push(tradeToReport.dt);
+        //_trades[_orders[_ref].party].push(tradeToReport.dt);
+        //_trades[_orders[_cref].party].push(tradeToReport.dt);
+        emit tradeExecuted(_orders[_ref].party, _orders[_cref].party, tradeToReport.dt);
         _prevailingPrice = currencyTraded.divDown(securityTraded);
     }
 
@@ -308,20 +312,20 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         return _tradeRefs[_party][_timestamp];
     }
 
-    function getTrades() external override view returns(uint256[] memory){
+    /*function getTrades() external override view returns(uint256[] memory){
         return _trades[msg.sender];
-    }
+    }*/
 
-    function removeTrade(address _party, uint256 _timestamp) public onlyOwner {
+    /*function removeTrade(address _party, uint256 _timestamp) public onlyOwner {
         uint256 length = _trades[_party].length;
         for(uint256 i=0; i<length; i++){
             if(_trades[_party][i]==_timestamp)
                 delete _trades[_party][i];
         }
-    }
+    }*/
     
     //remove this function using unbounded for loop, use the subgraph instead
-    function getOrderRef() external override view returns (bytes32[] memory) {
+    /*function getOrderRef() external override view returns (bytes32[] memory) {
         bytes32[] memory refs = new bytes32[](_sellOrderbook.length);
         uint256 i;
         uint256 length = _sellOrderbook.length; 
@@ -332,7 +336,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
             }
         }
         return refs;
-    }
+    }*/
 
     function revertTrade(
         bytes32 _orderRef,

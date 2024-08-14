@@ -20,6 +20,8 @@ interface IMarginTradingPool {
 
     function getCollateral() external view returns(uint256);
 
-    function getTradeFeePercentage() external view returns(uint256);
+    function getFee() external view returns(uint256);
+
+    function getManager() external view returns(address);
 }
 

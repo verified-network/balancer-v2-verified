@@ -40,9 +40,9 @@ interface IOrder {
 
     function getTrade(address _party, uint256 _timestamp) external view returns(ITrade.trade memory);
 
-    function getTrades() external view returns(uint256[] memory);
+    //function getTrades() external view returns(uint256[] memory);
 
-    function getOrderRef() external view returns (bytes32[] memory);
+    //function getOrderRef() external view returns (bytes32[] memory);
 
     function orderFilled(bytes32 partyRef, bytes32 counterpartyRef, uint256 executionDate) external;
 
