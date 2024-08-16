@@ -34,7 +34,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
 
     //mapping parties to trade time stamps
     //mapping(address => uint256[]) private _trades;
-    event tradeExecuted(address indexed party, address indexed counterparty, uint256 tradeToReportDate);
+    event tradeExecuted(address indexed pool, address party, address counterparty, uint256 tradeToReportDate);
 
     address private immutable _security;
     address private immutable _currency;
@@ -298,7 +298,7 @@ contract Orderbook is IOrder, ITrade, Ownable, Heap{
         _tradeRefs[_orders[_cref].party][oIndex] = tradeToReport;        
         //_trades[_orders[_ref].party].push(tradeToReport.dt);
         //_trades[_orders[_cref].party].push(tradeToReport.dt);
-        emit tradeExecuted(_orders[_ref].party, _orders[_cref].party, tradeToReport.dt);
+        emit tradeExecuted(_pool, _orders[_ref].party, _orders[_cref].party, tradeToReport.dt);
         _prevailingPrice = currencyTraded.divDown(securityTraded);
     }
 
